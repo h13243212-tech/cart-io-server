@@ -1,0 +1,17 @@
+{
+  "name": "cart-io-server",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Cart.io authoritative game server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

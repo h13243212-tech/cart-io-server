@@ -50,9 +50,9 @@ async function save() {
 function health() {
   chrome.runtime.sendMessage({ type: "akb:health" }, h => {
     if (!h) return setStatus("down", "No response from the extension worker. Reload it.");
-    if (h.ok) return setStatus("up", `Connected to ${h.user}@${h.host}.\nYou're done — open arena.ai.`, true);
+    if (h.ok) return setStatus("up", `Connected to ${h.user}@${h.host}.\nNow press CONNECT in the panel on arena.ai.`, true);
     if (h.error === "wrong-token") return setStatus("down", "Reachable, but the token was rejected. Connect again.");
-    if (h.error === "no-token") return setStatus("down", "Not connected yet — click Connect.");
+    if (h.error === "no-token") return setStatus("down", "Not connected yet — click Test connection.");
     if (h.error === "offline") {
       return setStatus("down", "Nothing listening on 8787.\nIs the agent running in Kali, and is the port forward set up?");
     }
@@ -61,7 +61,7 @@ function health() {
 }
 
 function pair() {
-  setStatus("", "Connecting to the VM…");
+  setStatus("", "Testing…");
   chrome.runtime.sendMessage({ type: "akb:pair" }, r => {
     if (!r) return setStatus("down", "No response from the extension worker. Reload it.");
     if (r.ok) {

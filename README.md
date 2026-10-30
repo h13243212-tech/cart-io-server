@@ -1,65 +1,73 @@
 # Arena ⇄ Kali
 
-Ask an Arena chat to do something, and it happens on your own Kali VM — real
+Ask an Arena chat to do something and it happens on your own Kali VM — real
 shell, real tools, output typed back into the chat for you.
 
 No commands to copy, no output to paste, no token to retype.
 
-Two pieces:
+```
+you:     which ports are listening on this box?
+arena:   runs  <bash> ss -tulpn </bash>   and nothing else
+bridge:  [bridge exit=0 12ms] Netid State Local Address:Port … [/bridge]
+arena:   Three services. 22 is ssh, 8080 is your app…
+```
 
-| Piece | Runs where | Job |
-|---|---|---|
-| `kali/bridge_agent.py` | inside the VM | executes commands, answers on `127.0.0.1:8787` |
-| `extension/` | your browser | reads the chat, runs what the model asks, types the result back |
-
-**Four steps.** About five minutes, most of it downloads and a VM boot.
+**Clone → run → pair → start.** Five minutes, most of it a VM boot.
 
 ---
 
-## 1. Start the agent inside Kali
+## The four steps
 
-Get the `kali/` folder into the VM (drag & drop, `scp`, shared folder — whatever
-you already use), then:
+### 1. Start the agent inside Kali
+
+In a terminal **inside the VM**:
 
 ```bash
-bash kali/start.sh
+git clone https://github.com/h13243212-tech/arena-kali
+bash arena-kali/kali/start.sh
 ```
 
-Double-clicking `start.sh` works in most file managers too. **Leave that window
-open** — it is the bridge. It prints a token and tells you to click Pair; you do
-not need to write the token down.
+Leave that window open — it *is* the bridge. It prints a token and says
+"click Pair"; you never need to write the token down.
 
-`python3` missing? `sudo apt install -y python3`.
+*(No `git`? `sudo apt install -y git`. No `python3`? `sudo apt install -y python3`.)*
 
-## 2. Open the port on your machine (once)
+### 2. Open the port — only if your browser is outside the VM
 
-The agent listens on the VM's own loopback. Your browser is outside the VM, so
-`127.0.0.1:8787` has to be forwarded in.
+If you browse arena.ai **inside** the VM (Kali desktop, Firefox/Chromium in the
+VM), skip this step entirely.
+
+Otherwise the VM's `8787` has to appear as `127.0.0.1:8787` on your own machine:
 
 - **Windows** — double-click `setup/windows-portforward.bat`, type your VM name.
 - **macOS / Linux** — double-click `setup/mac-linux-portforward.command`, type your VM name.
 
 Run it while the VM is **running**. It replaces the rule each time, so re-running
-is always safe.
-
-Not VirtualBox, or the VM is on another machine? Skip the script and tunnel:
+is always safe. No VirtualBox, or the VM is on another machine? Tunnel instead:
 
 ```bash
 ssh -N -L 8787:127.0.0.1:8787 kali@your-vm
 ```
 
-## 3. Load the extension and pair
+Check it worked — `401 unauthorised` is the *good* answer, it means something is
+listening and refusing unauthenticated callers:
+
+```bash
+curl -i http://127.0.0.1:8787/health
+```
+
+### 3. Load the extension and pair
 
 Chrome, Edge or Brave → `chrome://extensions` → turn on **Developer mode** →
-**Load unpacked** → pick the `extension/` folder. Pin it to the toolbar.
+**Load unpacked** → pick the `extension/` folder in this repo. Pin it.
 
 Click the icon → **Pair with my VM**. The dot turns green and names the machine
 it is attached to. That was the token step; it is automatic now.
 
-## 4. Use it
+### 4. Use it
 
-Open arena.ai, start a chat, and make sure it is in **Direct mode** — the panel
-does not appear in the agentic modes because there is nothing to bridge there.
+Open arena.ai, start a chat, make sure it is in **Direct mode** — the panel does
+not appear in the agentic modes because there is nothing to bridge there.
 
 A small panel appears in the corner:
 
@@ -83,16 +91,7 @@ stop** (or close the tab) to disarm.
 | Green dot, but the model just talks | The chat is not in Direct mode, or the panel is not armed. |
 | `no chat input box found` | arena.ai changed its markup. Press `?` in the panel — **Diagnose** reports what it found — then paste selectors into the popup's **Advanced** fields. |
 | Commands run, model ignores the results | It drifted from the format. Open a fresh chat and press **START SESSION** again. |
-| Everything ran fine yesterday | VMs and forwards do not survive reboots. Re-run step 1 and step 2. |
-
-A raw check, without the browser:
-
-```bash
-curl -i http://127.0.0.1:8787/health     # 401 "unauthorised" = the port works
-```
-
-401 is the *good* answer here: it proves something is listening and refusing
-unauthenticated callers.
+| It all worked yesterday | VMs and port forwards do not survive reboots. Re-run steps 1–2. |
 
 ---
 
@@ -102,10 +101,10 @@ Arena has no tool-calling API for a Direct-mode chat, so the loop is simulated
 through the chat UI itself — the same trick ZeroScript uses for Roblox Studio:
 
 ```
-chat reply ──▶ extension scrapes the ```bash block
+chat reply ──▶ extension scrapes the bash code block
            ──▶ POST http://127.0.0.1:8787/run
            ──▶ agent runs it, returns one JSON object
-           ──▶ extension types "[bridge exit=0 12ms] … [/bridge]" back and presses Enter
+           ──▶ extension types "[bridge exit=0 12ms] … [/bridge]" back, presses Enter
 ```
 
 `/run` answers in a single JSON object (`code`, `ms`, `out`, `err`, `timedOut`,
@@ -144,7 +143,6 @@ What people actually do about that, in ascending order of effort:
 
 - disarm the panel (one click) whenever you are not actively working;
 - keep a VM snapshot, take one before risky work, revert after;
-- give the VM a hostname you will recognise in the panel header;
 - read the `$ …` lines — they are the whole audit log.
 
 ## Files
@@ -195,6 +193,6 @@ first when the site changes.
 
 ## Uninstall
 
-Delete the extension from `chrome://extensions`, delete the `arena-kali` port
-forward (`setup` scripts replace it; VirtualBox → Settings → Network → Advanced
-removes it), and delete `~/.arena-bridge/` in the VM.
+Delete the extension from `chrome://extensions`, remove the `arena-kali` port
+forward (VirtualBox → Settings → Network → Advanced), and delete
+`~/.arena-bridge/` in the VM.

@@ -47,17 +47,26 @@ fi
 
 say ""
 say "  Adding 127.0.0.1:8787 -> guest 8787 on \"$VMNAME\" ..."
-"$VBM" controlvm "$VMNAME" natpf1 delete "arena-kali" >/dev/null 2>&1 || true
-if "$VBM" controlvm "$VMNAME" natpf1 "arena-kali,tcp,127.0.0.1,8787,,8787"; then
-  say ""
-  say "  [OK] Port forwarded. Test it:"
-  say "       curl -i http://127.0.0.1:8787/health   ->  expects 401 (that is correct)"
-  say ""
-  say "  Keep the VM running. Next: load the extension and click Pair."
+# Permanent first: written into the VM's settings, so it survives reboots.
+# VirtualBox only allows that while the VM is off.
+"$VBM" modifyvm "$VMNAME" --natpf1 delete "arena-kali" >/dev/null 2>&1 || true
+if "$VBM" modifyvm "$VMNAME" --natpf1 "arena-kali,tcp,127.0.0.1,8787,,8787" >/dev/null 2>&1; then
+  say "  [OK] Saved permanently in the VM's settings."
 else
-  say ""
-  say "  [X] VirtualBox refused it."
-  say "      - Is the VM actually running? (the rule is added while running)"
-  say "      - Is Adapter 1 set to NAT? (Settings > Network)"
-  exit 1
+  say "  VM is running, so this rule lasts only until it shuts down."
+  say "  To make it permanent: shut the VM down, then run this file again."
+  "$VBM" controlvm "$VMNAME" natpf1 delete "arena-kali" >/dev/null 2>&1 || true
+  "$VBM" controlvm "$VMNAME" natpf1 "arena-kali,tcp,127.0.0.1,8787,,8787" || {
+    say ""
+    say "  [X] VirtualBox refused it."
+    say "      - Is Adapter 1 set to NAT? (Settings > Network)"
+    say "      - VM name typed exactly as VirtualBox shows it?"
+    exit 1
+  }
 fi
+
+say ""
+say "  Port forwarded. Test it:"
+say "       curl -i http://127.0.0.1:8787/health   ->  expects 401 (that is correct)"
+say ""
+say "  Next: load the extension, open arena.ai and press CONNECT."

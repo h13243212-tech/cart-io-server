@@ -52,7 +52,7 @@
       </div>
       <div class="akb-body">
         <div class="akb-controls">
-          <button class="akb-arm" data-act="arm">START SESSION</button>
+          <button class="akb-arm" data-act="arm">CONNECT</button>
           <button class="akb-mini" data-act="reset" title="reset step counter">↺</button>
           <span class="akb-steps">0/${DEFAULTS.maxSteps}</span>
         </div>
@@ -101,7 +101,7 @@
   function setArmed(v) {
     armed = v;
     started = true;
-    armBtn.textContent = v ? "ARMED — click to stop" : "ARM";
+    armBtn.textContent = v ? "ARMED — click to stop" : "CONNECT";
     armBtn.classList.toggle("akb-on", v);
     panel.classList.toggle("akb-armed", v);
     row(v ? "warn" : "meta", v ? "ARMED — the model can now run commands" : "disarmed");
@@ -113,18 +113,39 @@
     }
   }
 
-  /** One click: teach the model the format, send it, and arm the loop. */
+  /** One click: pair if needed, teach the model the format, send it, arm.
+      Pairing here (not in the popup) is the point — the panel is where the
+      user already is, and a token is not something anyone should handle. */
   function startSession() {
-    row("meta", "── starting session ──");
-    const health0 = () => new Promise(r => chrome.runtime.sendMessage({ type: "akb:health" }, r));
-    health0().then(h => {
+    row("meta", "── connecting ──");
+    const ask = (type) => new Promise(r => chrome.runtime.sendMessage({ type }, r));
+
+    (async () => {
+      let h = await ask("akb:health");
+
+      if (h && h.error === "no-token") {
+        row("meta", "asking the VM for a token…");
+        const p = await ask("akb:pair");
+        if (!p || !p.ok) {
+          row("err", p?.error === "pairing-disabled"
+            ? "the VM's agent has pairing off (--no-pair) — paste the token in the extension popup"
+            : "cannot reach the VM — is the agent running?");
+          setDot("down", "offline");
+          return;
+        }
+        h = await ask("akb:health");
+      }
+
       if (!h || !h.ok) {
-        row("err", h?.error === "no-token"
-          ? "not paired yet — open the extension popup and click Pair"
-          : "bridge offline — is the agent running in Kali?");
+        row("err", !h || h.error === "offline"
+          ? "cannot reach the VM — is the agent running in Kali?"
+          : "the VM rejected the token — paste a fresh one in the extension popup");
         setDot("down", h?.error || "offline");
         return;
       }
+
+      setDot("up", `${h.user}@${h.host}`);
+      row("good", `connected to ${h.user}@${h.host}`);
 
       const { el: composer } = Site.findComposer(cfg.selectors.composer);
       if (!composer) {
@@ -145,12 +166,11 @@
       setTimeout(() => {
         const how = Site.submit(composer, sendBtn);
         if (how === "none") { row("err", "could not send — press Enter yourself"); return; }
-        row("good", "session started");
-        row("meta", "the model will reply READY, then just ask it for something");
+        row("meta", "waiting for READY, then just ask for something");
         lastSeenText = "";
         setTimeout(() => setArmed(true), 900);
       }, 80);
-    });
+    })();
   }
 
   function resetRun() {
@@ -293,9 +313,8 @@
     });
     obs.observe(document.body, { childList: true, subtree: true, characterData: true });
 
-    row("good", "1. press START SESSION");
-    row("meta", "2. wait for READY");
-    row("meta", "3. ask for anything — it runs on your VM");
+    row("good", "press CONNECT — that is the whole setup");
+    row("meta", "then ask for anything: it runs on your VM");
   }
 
   if (document.body) start();

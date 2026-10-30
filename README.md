@@ -3,8 +3,6 @@
 Ask an Arena chat to do something and it happens on your own Kali VM — real
 shell, real tools, output typed back into the chat for you.
 
-No commands to copy, no output to paste, no token to retype.
-
 ```
 you:     which ports are listening on this box?
 arena:   runs  <bash> ss -tulpn </bash>   and nothing else
@@ -12,73 +10,79 @@ bridge:  [bridge exit=0 12ms] Netid State Local Address:Port … [/bridge]
 arena:   Three services. 22 is ssh, 8080 is your app…
 ```
 
-**Clone → run → pair → start.** Five minutes, most of it a VM boot.
+**Install once — two commands. After that it is one button, forever.**
 
 ---
 
-## The four steps
+## Install once
 
-### 1. Start the agent inside Kali
-
-In a terminal **inside the VM**:
+### 1. In the VM: one command
 
 ```bash
-git clone https://github.com/h13243212-tech/cart-io-server arena-kali
-bash arena-kali/kali/start.sh
+curl -fsSL https://raw.githubusercontent.com/h13243212-tech/cart-io-server/main/kali/install.sh | sudo bash
 ```
 
-Leave that window open — it *is* the bridge. It prints a token and says
-"click Pair"; you never need to write the token down.
-
-*(No `git`? `sudo apt install -y git`. No `python3`? `sudo apt install -y python3`.)*
-
-### 2. Open the port — only if your browser is outside the VM
-
-If you browse arena.ai **inside** the VM (Kali desktop, Firefox/Chromium in the
-VM), skip this step entirely.
-
-Otherwise the VM's `8787` has to appear as `127.0.0.1:8787` on your own machine:
-
-- **Windows** — double-click `setup/windows-portforward.bat`, type your VM name.
-- **macOS / Linux** — double-click `setup/mac-linux-portforward.command`, type your VM name.
-
-Run it while the VM is **running**. It replaces the rule each time, so re-running
-is always safe. No VirtualBox, or the VM is on another machine? Tunnel instead:
+That clones the repo into `/opt/arena-kali`, installs a `systemd` service,
+starts it, and makes it start with the VM every time. No terminal left open, no
+re-running anything after a reboot.
 
 ```bash
-ssh -N -L 8787:127.0.0.1:8787 kali@your-vm
+systemctl status arena-bridge          # is it alive?
+journalctl -u arena-bridge -n 30       # what has it been doing?
 ```
 
-Check it worked — `401 unauthorised` is the *good* answer, it means something is
-listening and refusing unauthenticated callers:
+No internet in the VM? Clone on the host, copy the folder in, then
+`sudo bash kali/install.sh` from inside it — same result.
+
+### 2. On the machine with the browser: one double-click
+
+- **Windows** — `setup\windows-portforward.bat`
+- **macOS / Linux** — `setup/mac-linux-portforward.command`
+
+Type your VM's name exactly as VirtualBox shows it. **Shut the VM down first** —
+that is what lets the rule be saved permanently instead of lasting until the
+next shutdown. (Run it with the VM on and the script will tell you.)
+
+Check it:
 
 ```bash
-curl -i http://127.0.0.1:8787/health
+curl -i http://127.0.0.1:8787/health     # 401 "unauthorised" = the port works
 ```
 
-### 3. Load the extension and pair
+`401` is the *good* answer — something is listening and refusing unknown
+callers. `connection refused` means the agent is not reachable; the script
+prints what to look for.
 
-Chrome, Edge or Brave → `chrome://extensions` → turn on **Developer mode** →
-**Load unpacked** → pick the `extension/` folder in this repo. Pin it.
+**Skip this step entirely if your browser runs inside the VM.**
 
-Click the icon → **Pair with my VM**. The dot turns green and names the machine
-it is attached to. That was the token step; it is automatic now.
+### 3. Load the extension (once, 20 seconds)
 
-### 4. Use it
+`chrome://extensions` → turn on **Developer mode** → **Load unpacked** → pick
+the `extension/` folder → pin it to the toolbar.
 
-Open arena.ai, start a chat, make sure it is in **Direct mode** — the panel does
-not appear in the agentic modes because there is nothing to bridge there.
+## Every time
 
-A small panel appears in the corner:
+1. Start the VM. The agent starts itself.
+2. Open arena.ai in a chat that is in **Direct mode**.
+3. Press **CONNECT** in the panel.
 
-1. press **START SESSION** — it explains the format to the model and arms the loop;
-2. wait for `READY`;
-3. ask for anything — *"which ports are listening on this box?"*, *"stand up a
-   tiny ssh honeypot and show me the log"*, *"why is nginx 502ing?"*
+That one click asks the VM for a token, teaches the model the format, sends it,
+and arms the loop. Nothing is typed, pasted or copied. Then just ask:
 
-Each command the model sends appears as a `$ …` line in the panel, and the
-output is typed back into the chat automatically. Click **ARMED — click to
-stop** (or close the tab) to disarm.
+> which ports are listening on this box?
+> stand up a tiny ssh honeypot and show me the log
+> why is nginx 502ing?
+
+Each command appears as a `$ …` line in the panel; the output is typed back
+into the chat automatically. Click **ARMED — click to stop** (or close the tab)
+to disarm.
+
+### Why one click and not zero
+
+A browser extension cannot start a process inside your VM — that is a browser
+security boundary, not a design choice, and it is the one thing that stops this
+from being literally "install and forget". One-time install plus one click per
+session is as close as the platform allows.
 
 ---
 
@@ -86,12 +90,19 @@ stop** (or close the tab) to disarm.
 
 | What you see | What it means |
 |---|---|
-| `Nothing listening on 8787` | Agent not started, or step 2 not done. The VM must be *running* when you run the setup script. |
-| `Pairing is switched off` | The agent was started with `--no-pair`. Copy the token from its window into the popup's **Advanced** box. |
-| Green dot, but the model just talks | The chat is not in Direct mode, or the panel is not armed. |
+| `cannot reach the VM` in the panel | The agent is not running, or the port forward is missing. In the VM: `systemctl status arena-bridge`. On the host: re-run the setup script. |
+| Agent running, host gets `connection refused` | The VirtualBox NAT case: the agent bound `127.0.0.1` inside the VM, and a NAT forward arrives on the VM's *network* address (`10.0.2.15`). `kali/install.sh` and `kali/start.sh` detect this and bind the adapter. Re-run the installer if you set up before this existed. |
+| Adapter is **Bridged**, not NAT | The extension only accepts loopback agent addresses, so it will not reach the VM's LAN IP. Use the `ssh -L` tunnel below. |
+| `the VM rejected the token` | The token file changed (reinstall). Clear the token in the popup's **Advanced** box and press CONNECT again. |
+| Green dot, model just talks | The chat is not in Direct mode, or the panel is disarmed. |
 | `no chat input box found` | arena.ai changed its markup. Press `?` in the panel — **Diagnose** reports what it found — then paste selectors into the popup's **Advanced** fields. |
-| Commands run, model ignores the results | It drifted from the format. Open a fresh chat and press **START SESSION** again. |
-| It all worked yesterday | VMs and port forwards do not survive reboots. Re-run steps 1–2. |
+| Commands run, model ignores the results | It drifted from the format. Open a fresh chat and press CONNECT again. |
+
+Remote VM instead of VirtualBox? Skip step 2 and tunnel:
+
+```bash
+ssh -N -L 8787:127.0.0.1:8787 kali@your-vm
+```
 
 ---
 
@@ -117,13 +128,12 @@ Decisions worth knowing:
   cannot `fetch` `http://127.0.0.1`, and a content script inherits that
   restriction — only the extension's service worker, which declares
   `host_permissions`, can reach it.
-- **The agent binds loopback only.** It is never exposed to your network. If you
-  pass `--host 0.0.0.0` it prints a warning, because anything that can reach
-  that port can run shell commands as you.
 - **Pairing is gated on `Origin: chrome-extension://…`**, a header the browser
   sets and page JavaScript cannot forge. Another browser extension could still
-  pair, so every pairing is logged to the agent's window, and `--no-pair` closes
-  it entirely.
+  pair, so every pairing is logged to the journal, and `--no-pair` closes it.
+- **The agent binds loopback unless it sees VirtualBox NAT.** With NAT the port
+  is reachable only from inside the VM and through the host-side forward, which
+  the setup scripts bind to `127.0.0.1`.
 - **Disarmed by default, one block per reply, deduplicated.** The extension
   marks a message as consumed *before* it runs it, so a re-render cannot execute
   the same command twice.
@@ -133,58 +143,62 @@ Decisions worth knowing:
 
 ## This is full access, on purpose
 
-The agent runs commands as your user, with no approval prompt and no directory
-jail. That is the point — it is a shell, not a babysitter — and it means:
+The service runs as **root**, because that is what makes `nmap -sS`, packet
+capture and package installs work without password prompts in a VM with no TTY.
 
-> A prompt-injected or confused model can run anything you can. Deleting your
-> home directory is one bad reply away.
+> A prompt-injected or confused model can run anything root can. `rm -rf /` is
+> one bad reply away.
 
 What people actually do about that, in ascending order of effort:
 
-- disarm the panel (one click) whenever you are not actively working;
+- click **ARMED — click to stop** whenever you are not actively working;
 - keep a VM snapshot, take one before risky work, revert after;
-- read the `$ …` lines — they are the whole audit log.
+- read the `$ …` lines — they are the whole audit log;
+- `sudo bash /opt/arena-kali/kali/install.sh --uninstall` when you are done for
+  the day, and install again tomorrow.
 
 ## Files
 
 ```
+kali/install.sh              one-time installer: systemd service, on boot
+kali/start.sh                run it in the foreground instead
 kali/bridge_agent.py         the agent (stdlib only, no pip installs)
-kali/start.sh                launcher, checks python3
 setup/windows-portforward.bat
 setup/mac-linux-portforward.command
 extension/manifest.json      MV3; storage + loopback host permissions only
 extension/site.js            every DOM guess lives here, nothing else does
-extension/prompt.js          the setup prompt injected by START SESSION
+extension/prompt.js          the setup prompt injected by CONNECT
 extension/content.js         the panel, the settle-debounce, the typing
 extension/background.js      the only decider; imports lib/loop.js
 extension/lib/loop.js        pure decision logic — no DOM, fully tested
-extension/popup.*            Pair, plus Advanced escape hatches
-prompts/system-prompt.md     the same contract, documented (for pasting by hand)
-test/                        53 tests, no browser needed
+extension/popup.*            Connect, plus Advanced escape hatches
+test/                        72 tests, no browser needed
 ```
 
-Agent flags:
+Agent flags (for `kali/start.sh`, or add them to the unit's `ExecStart`):
 
 ```bash
-python3 kali/bridge_agent.py --help
-  --port 8787        change the port (also change the forward and the popup)
-  --no-pair          refuse /pair; the token must be pasted by hand
-  --deny-rm          refuse a few catastrophic patterns (a seatbelt, not a lock)
-  --token            supply the token instead of generating one
-  --token-file       where the token is kept (default ~/.arena-bridge/token)
+--port 8787        change the port (also change the forward and the popup)
+--host 127.0.0.1   bind address; 0.0.0.0 only if a forward needs it
+--no-pair          refuse /pair; the token must be pasted by hand
+--deny-rm          refuse a few catastrophic patterns (a seatbelt, not a lock)
+--token            supply the token instead of generating one
+--token-file       where the token is kept (default ~/.arena-bridge/token)
 ```
 
 ## Tests
 
 ```bash
-npm test        # 53 passing
+npm test        # 72 passing
 ```
 
 The agent tests spawn the real Python agent on a real socket and check the
 contract: exit codes, separated streams, a timeout that actually kills the
 process group, output capping, token rejection, the seatbelt, and that `/pair`
-refuses every non-extension origin. The loop tests cover the parser — including
-the case where a reply contains an unterminated fence, which must never execute.
+refuses every non-extension origin. The setup tests run `kali/start.sh` with a
+fake `ip` and a fake `python3`, so they can prove the VirtualBox NAT binding
+without a VM. The loop tests cover the parser — including the case where a reply
+contains an unterminated fence, which must never execute.
 
 **What is not verified:** the DOM layer has never run against the live arena.ai
 markup. The selectors in `site.js` are heuristics. The Diagnose panel and the
@@ -193,6 +207,9 @@ first when the site changes.
 
 ## Uninstall
 
-Delete the extension from `chrome://extensions`, remove the `arena-kali` port
-forward (VirtualBox → Settings → Network → Advanced), and delete
-`~/.arena-bridge/` in the VM.
+```bash
+sudo bash /opt/arena-kali/kali/install.sh --uninstall     # service + code
+```
+
+Then remove the extension from `chrome://extensions`, and drop the `arena-kali`
+port forward (VirtualBox → Settings → Network → Advanced).

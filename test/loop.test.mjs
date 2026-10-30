@@ -7,6 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   parseCommandBlocks, cleanCommand, dedupeKey, nextAction, makeResultMessage, LIMITS,
+  normaliseLang, blocksToCommands, isExecutable,
 } from "../extension/lib/loop.js";
 
 test("finds bash blocks and leaves other fences alone", () => {
@@ -136,4 +137,87 @@ test("stderr is separated from stdout", () => {
   const m = makeResultMessage({ code: 1, out: "partial", err: "boom" });
   assert.ok(m.indexOf("partial") < m.indexOf("--- stderr ---"));
   assert.ok(m.includes("boom"));
+});
+
+/* ------------------------------------------------------------------
+   RENDERED CODE BLOCKS — the case that broke on the first live run.
+
+   arena.ai renders a ```bash fence into a styled component with a "Bash"
+   chip. The backticks exist only in the model's raw output, never in the
+   page text, so a fence parser alone sees a reply with a command in it and
+   concludes there is nothing to run — silently. These tests feed the
+   structural blocks the DOM layer now supplies.
+   ------------------------------------------------------------------ */
+test("structural blocks from rendered markdown", async (t) => {
+  const on = { armed: true };
+
+  await t.test("runs a block whose language is a display label", () => {
+    const d = nextAction({ ...on, text: "Let me check the system to confirm.\nBash\ncat /etc/os-release && uname -a",
+      blocks: [{ lang: "Bash", code: "cat /etc/os-release && uname -a" }] });
+    assert.equal(d.action, "run");
+    assert.equal(d.cmd, "cat /etc/os-release && uname -a");
+  });
+
+  await t.test("language labels are normalised", () => {
+    assert.equal(normaliseLang("Shell Session"), "shellsession");
+    assert.equal(normaliseLang("  BASH "), "bash");
+    assert.equal(normaliseLang(""), "untagged");
+    for (const label of ["Bash", "Shell", "sh", "zsh", "console", "Shell Session", "Terminal"]) {
+      const d = nextAction({ ...on, text: "x", blocks: [{ lang: label, code: "id" }] });
+      assert.equal(d.action, "run", `${label} should be executable`);
+    }
+  });
+
+  await t.test("the chip line is not part of the command", () => {
+    const d = nextAction({ ...on, text: "x", blocks: [{ lang: "bash", code: "Bash\nid -un" }] });
+    assert.equal(d.action, "run");
+    assert.equal(d.cmd, "id -un", "code must not start with the chip text");
+  });
+
+  await t.test("structural blocks win over a stale fence in the text", () => {
+    const d = nextAction({ ...on, text: "```bash\nold command\n```",
+      blocks: [{ lang: "bash", code: "new command" }] });
+    assert.equal(d.cmd, "new command");
+  });
+
+  await t.test("an untagged block runs when it is the only one", () => {
+    const d = nextAction({ ...on, text: "x", blocks: [{ lang: "", code: "whoami" }] });
+    assert.equal(d.action, "run");
+    assert.equal(d.cmd, "whoami");
+  });
+
+  await t.test("untagged among several is a tutorial, not a command", () => {
+    const d = nextAction({ ...on, text: "x", blocks: [
+      { lang: "", code: "step one" }, { lang: "", code: "step two" }] });
+    assert.equal(d.action, "idle");
+    assert.equal(d.saw.blocks, 2);
+  });
+
+  await t.test("a non-executable block is reported, not ignored", () => {
+    const d = nextAction({ ...on, text: "x", blocks: [{ lang: "python", code: "print(1)" }] });
+    assert.equal(d.action, "idle");
+    assert.equal(d.saw.blocks, 1);
+    assert.deepEqual(d.saw.langs, ["python"]);
+    assert.equal(d.reason, "no executable block");
+  });
+
+  await t.test("says where the blocks came from", () => {
+    assert.equal(nextAction({ ...on, text: "x", blocks: [{ lang: "bash", code: "id" }] }).saw.from, "dom");
+    assert.equal(nextAction({ ...on, text: "```bash\nid\n```" }).saw.from, "fence");
+  });
+
+  await t.test("the same block is not run twice", () => {
+    const blocks = [{ lang: "bash", code: "id" }];
+    const first = nextAction({ ...on, text: "x", blocks });
+    const seen = new Set([first.key]);
+    const second = nextAction({ ...on, text: "x", blocks, seen });
+    assert.equal(second.action, "idle");
+    assert.equal(second.reason, "already ran this");
+  });
+
+  await t.test("still refuses to run when disarmed", () => {
+    const d = nextAction({ text: "x", blocks: [{ lang: "bash", code: "rm -rf /" }] });
+    assert.equal(d.action, "idle");
+    assert.equal(d.cmd, undefined);
+  });
 });

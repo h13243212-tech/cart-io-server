@@ -33,6 +33,7 @@
   let started = false;
   let steps = 0;
   let lastSeenText = "";
+  let lastIdleText = "";   // so "saw a block, cannot run it" is said once
   let lastInjected = "";
   let busy = false;
   let settleTimer = null;
@@ -191,24 +192,26 @@
   /* ---------------- the loop ---------------- */
   function settle() {
     if (!armed || busy) return;
-    const { text } = Site.findLastReplyText(cfg.selectors.reply);
+    const { text, blocks } = Site.findLastReplyText(cfg.selectors.reply);
     if (!text) return;
     if (text === lastSeenText) return;
     // never treat our own injected result as a new instruction
     if (lastInjected && text.startsWith(lastInjected.slice(0, 60))) return;
     if (text.length < 8) return;
-    tick(false, text);
+    tick(false, text, blocks);
   }
 
-  function tick(force = false, text = null) {
+  function tick(force = false, text = null, blocks = null) {
     if (!armed || busy) return;
-    const body = text ?? Site.findLastReplyText(cfg.selectors.reply).text;
+    const reply = text == null ? Site.findLastReplyText(cfg.selectors.reply) : null;
+    const body = text ?? reply.text;
+    const codeBlocks = blocks ?? reply?.blocks ?? [];
     if (!body) return;
     if (!force && body === lastSeenText) return;
     lastSeenText = body;
     busy = true;
 
-    chrome.runtime.sendMessage({ type: "akb:tick", text: body }, res => {
+    chrome.runtime.sendMessage({ type: "akb:tick", text: body, blocks: codeBlocks }, res => {
       busy = false;
       if (!res) { row("err", "no answer from the extension worker"); return; }
       if (res.error) { row("err", "bridge: " + res.error); setDot("down", res.error); return; }
@@ -220,8 +223,19 @@
         setArmed(false);
         return;
       }
+      if (res.action === "idle") {
+        // A reply with a code block that did not run is the most confusing
+        // state this thing has. Say what was seen, once per reply.
+        if (res.saw && res.saw.blocks && lastIdleText !== body) {
+          lastIdleText = body;
+          const langs = (res.saw.langs || []).map((l) => l || "untagged").join(", ");
+          row("warn", `saw ${res.saw.blocks} code block(s) [${langs}] — ${res.reason || "not executable"}`);
+        }
+        return;
+      }
       if (res.action !== "run") return;
 
+      lastIdleText = "";
       row("cmd", "$ " + res.cmd);
       row("meta", `  ↳ ${res.summary || ""}`);
       deliver(res.message);

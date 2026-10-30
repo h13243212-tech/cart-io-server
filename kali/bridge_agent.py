@@ -214,6 +214,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "body must be a JSON object"})
             return
 
+        # The journal is the only audit trail this thing has. Keeping quiet
+        # about commands made "is it even reaching the VM?" unanswerable.
+        cmd_for_log = payload.get("cmd")
+        if isinstance(cmd_for_log, str):
+            one_line = " ".join(cmd_for_log.split())
+            log("%s %s" % (route, one_line[:160] + ("…" if len(one_line) > 160 else "")))
+
         if route == "/run":
             self._run(payload)
         else:

@@ -126,6 +126,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       const decision = nextAction({
         text: String(msg.text || ""),
+        // structural blocks from the page: rendered markdown keeps no
+        // backticks, so the fence parser alone silently finds nothing
+        blocks: Array.isArray(msg.blocks) ? msg.blocks : [],
         seen: st.seen,
         armed: true,
         steps: st.steps,
@@ -138,7 +141,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return;
       }
       if (decision.action !== "run") {
-        sendResponse({ action: "idle", steps: st.steps });
+        sendResponse({ action: "idle", steps: st.steps, saw: decision.saw, reason: decision.reason });
         return;
       }
 
@@ -153,6 +156,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendResponse({
         action: "run",
         cmd: decision.cmd,
+        saw: decision.saw,
         summary: `${result.error ? "error: " + result.error : "exit " + result.code} · ${result.ms ?? 0}ms`,
         message: makeResultMessage(result),
         steps: st.steps,

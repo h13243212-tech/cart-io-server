@@ -81,12 +81,65 @@
    * Heuristic ladder: explicit role attributes first, then generic
    * markdown containers, then anything that looks like a message.
    */
+  /* ------------------------------------------------------------------
+     Rendered markdown keeps no backticks. arena.ai (like most chat UIs)
+     turns a ```bash fence into a styled component with a language chip, so
+     the reply's innerText is "Bash" + the code — and a fence parser sees
+     nothing at all. Read the <pre> elements instead and carry the label
+     along; the decision about whether it is executable stays in loop.js.
+     ------------------------------------------------------------------ */
+  const LANG_LABELS = new Set([
+    "bash", "sh", "shell", "shellscript", "zsh", "fish", "ksh",
+    "console", "shellsession", "terminal", "kali", "zos", "powershell", "ps1",
+    "text", "plaintext", "txt", "python", "python3", "javascript", "js",
+    "typescript", "ts", "json", "yaml", "yml", "html", "css", "sql",
+    "ruby", "go", "rust", "c", "cpp", "java", "php",
+  ]);
+
+  /** The language a code block claims, from the most reliable source first. */
+  function langOf(pre, codeEl, code) {
+    const cls = typeof codeEl.className === "string" ? codeEl.className : "";
+    let lang = (cls.match(/language-([\w+#.-]+)/i) || [])[1] || "";
+    if (!lang) lang = pre.getAttribute("data-language") || "";
+    if (!lang) {
+      const holder = pre.parentElement;
+      if (holder) {
+        lang = [...holder.querySelectorAll("*")]
+          .filter((n) => n.children.length === 0)
+          .map((n) => (n.textContent || "").trim())
+          .find((t) => t && t.length <= 20 && LANG_LABELS.has(t.toLowerCase())) || "";
+      }
+    }
+    return lang.toLowerCase();
+  }
+
+  /** Every code block in a reply, with the language its header displays. */
+  function codeBlocksIn(root) {
+    if (!root || !root.querySelectorAll) return [];
+    const out = [];
+    for (const pre of root.querySelectorAll("pre")) {
+      const codeEl = pre.querySelector("code") || pre;
+      let code = codeEl.innerText || codeEl.textContent || "";
+      const lang = langOf(pre, codeEl, code);
+      // a chip rendered inside the <pre> leaks into innerText as line one
+      const first = code.split("\n")[0].trim().toLowerCase();
+      if (code.split("\n").length > 1 && LANG_LABELS.has(first)) {
+        code = code.split("\n").slice(1).join("\n");
+      }
+      if (code.trim()) out.push({ lang, code });
+    }
+    return out;
+  }
+
   function findLastReplyText(override) {
     if (override) {
       const nodes = [...document.querySelectorAll(override)];
       if (nodes.length) {
         const el = nodes[nodes.length - 1];
-        return { el, text: el.innerText || el.textContent || "", how: "override" };
+        return {
+          el, text: el.innerText || el.textContent || "",
+          blocks: codeBlocksIn(el), how: "override",
+        };
       }
     }
     const ladders = [
@@ -102,10 +155,10 @@
       // the reply is the last one on the page with real content
       for (let i = nodes.length - 1; i >= 0; i--) {
         const text = (nodes[i].innerText || "").trim();
-        if (text.length > 0) return { el: nodes[i], text, how };
+        if (text.length > 0) return { el: nodes[i], text, blocks: codeBlocksIn(nodes[i]), how };
       }
     }
-    return { el: null, text: "", how: "none" };
+    return { el: null, text: "", blocks: [], how: "none" };
   }
 
   /** Type into the chat box in a way React/Lexical editors actually see. */
@@ -178,6 +231,8 @@
         found: !!r.el, how: r.how,
         chars: r.text.length,
         hasFence: r.text.includes("```"),
+        blocks: (r.blocks || []).length,
+        langs: [...new Set((r.blocks || []).map((b) => b.lang || "untagged"))].slice(0, 4),
         preview: r.text.slice(0, 120),
       },
       visibleEditables: editables,

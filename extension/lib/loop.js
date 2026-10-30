@@ -18,8 +18,19 @@
    ================================================================== */
 
 /** Only these fence languages are executable. A ```text block is output,
- *  never a command — executing every fence would run code samples. */
-export const EXEC_LANGS = new Set(["sh", "bash", "zsh", "shell", "kali", "zos"]);
+ *  never a command — executing every fence would run code samples.
+ *  `console` / `shellsession` are shell transcripts: models reach for them
+ *  when the site renders a code block with a language chip. */
+export const EXEC_LANGS = new Set([
+  "sh", "bash", "zsh", "shell", "shellscript", "kali", "zos",
+  "console", "shellsession", "terminal",
+]);
+
+/** Squash a language label as displayed ("Shell Session", "Bash") into a key. */
+export function normaliseLang(label) {
+  const squashed = String(label ?? "").trim().toLowerCase().replace(/[^a-z0-9+#.-]+/g, "");
+  return squashed || "untagged";
+}
 
 export const LIMITS = {
   maxCommandChars: 4000,
@@ -73,19 +84,75 @@ export function dedupeKey(cmd) {
  * Returns a decision, never performs one — so the same function drives
  * both the live loop and the tests.
  */
-export function nextAction({ text, seen = new Set(), armed = false, steps = 0, maxSteps = LIMITS.maxSteps }) {
-  if (!armed) return { action: "idle" };
+/**
+ * Commands as the *page* gave them to us.
+ *
+ * Rendered markdown keeps no backticks: a site that turns ```bash into a
+ * styled code-block component leaves us with the code and a language chip,
+ * so the fence parser sees nothing. These blocks are therefore preferred
+ * over fence parsing whenever the DOM layer can supply them.
+ */
+/** A rendered block often repeats its language chip as the first code line. */
+function stripChip(code, lang) {
+  const lines = String(code).split("\n");
+  if (lines.length < 2) return code;
+  const first = normaliseLang(lines[0]);
+  if (first !== "untagged" && (first === lang || EXEC_LANGS.has(first))) {
+    return lines.slice(1).join("\n");
+  }
+  return code;
+}
+
+export function blocksToCommands(rawBlocks = []) {
+  const list = Array.isArray(rawBlocks) ? rawBlocks : [];
+  return list
+    .map((b) => {
+      const lang = normaliseLang(b?.lang);
+      return { lang, cmd: cleanCommand(stripChip(b?.code ?? "", lang)) };
+    })
+    .filter((b) => b.cmd && b.cmd.length <= LIMITS.maxCommandChars)
+    .slice(0, 8);
+}
+
+/**
+ * A label we could not read is not a licence to run code: an untagged block is
+ * executable only when it is the ONLY block in the reply. One bare block after
+ * "run this" is the command; several bare blocks are a tutorial.
+ */
+export function isExecutable(block, total) {
+  if (EXEC_LANGS.has(block.lang)) return true;
+  return block.lang === "untagged" && total === 1;
+}
+
+export function nextAction({
+  text = "", blocks: rawBlocks = [], seen = new Set(), armed = false,
+  steps = 0, maxSteps = LIMITS.maxSteps,
+} = {}) {
+  if (!armed) return { action: "idle", saw: null };
   if (steps >= maxSteps) return { action: "stop", reason: `step budget exhausted (${maxSteps})` };
 
-  const blocks = parseCommandBlocks(text);
-  if (!blocks.length) return { action: "idle" };
+  const structural = Array.isArray(rawBlocks) && rawBlocks.length > 0;
+  const candidates = structural
+    ? blocksToCommands(rawBlocks)
+    : parseCommandBlocks(text).map((b) => ({ lang: b.lang, cmd: b.cmd }));
 
-  for (const b of blocks) {
+  // reported back so the panel can say what it saw instead of going quiet
+  const saw = candidates.length
+    ? { from: structural ? "dom" : "fence", blocks: candidates.length,
+        langs: [...new Set(candidates.map((b) => b.lang))].slice(0, 4) }
+    : null;
+
+  if (!candidates.length) return { action: "idle", saw };
+
+  const runnable = candidates.filter((b) => isExecutable(b, candidates.length));
+  if (!runnable.length) return { action: "idle", saw, reason: "no executable block" };
+
+  for (const b of runnable) {
     const key = dedupeKey(b.cmd);
     if (seen.has(key)) continue;
-    return { action: "run", cmd: b.cmd, key };
+    return { action: "run", cmd: b.cmd, key, saw };
   }
-  return { action: "idle" };
+  return { action: "idle", saw, reason: "already ran this" };
 }
 
 /**

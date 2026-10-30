@@ -100,6 +100,7 @@ session is as close as the platform allows.
 | Adapter is **Bridged**, not NAT | The extension only accepts loopback agent addresses, so it will not reach the VM's LAN IP. Use the `ssh -L` tunnel below. |
 | `the VM rejected the token` | The token file changed (reinstall). Clear the token in the popup's **Advanced** box and press CONNECT again. |
 | Green dot, model just talks | The chat is not in Direct mode, or the panel is disarmed. |
+| `saw 1 code block(s) [python] — not executable` | The reply contained a block, but not in a shell language. Ask for a `bash` block. |
 | `no chat input box found` | arena.ai changed its markup. Press `?` in the panel — **Diagnose** reports what it found — then paste selectors into the popup's **Advanced** fields. |
 | Commands run, model ignores the results | It drifted from the format. Open a fresh chat and press CONNECT again. |
 
@@ -143,6 +144,11 @@ Decisions worth knowing:
 - **The agent binds loopback unless it sees VirtualBox NAT.** With NAT the port
   is reachable only from inside the VM and through the host-side forward, which
   the setup scripts bind to `127.0.0.1`.
+- **Commands are read from the page's code blocks, not from backticks.**
+  Rendered markdown keeps no fence characters — arena.ai turns a ```bash fence
+  into a styled block with a "Bash" chip — so the extension collects `<pre>`
+  elements and their labels. Fence parsing is only the fallback for plain-text
+  renderings.
 - **Disarmed by default, one block per reply, deduplicated.** The extension
   marks a message as consumed *before* it runs it, so a re-render cannot execute
   the same command twice.
@@ -181,7 +187,7 @@ extension/content.js         the panel, the settle-debounce, the typing
 extension/background.js      the only decider; imports lib/loop.js
 extension/lib/loop.js        pure decision logic — no DOM, fully tested
 extension/popup.*            Connect, plus Advanced escape hatches
-test/                        73 tests, no browser needed
+test/                        88 tests, no browser needed
 ```
 
 Agent flags (for `kali/start.sh`, or add them to the unit's `ExecStart`):
@@ -198,7 +204,7 @@ Agent flags (for `kali/start.sh`, or add them to the unit's `ExecStart`):
 ## Tests
 
 ```bash
-npm test        # 73 passing
+npm test        # 88 passing
 ```
 
 The agent tests spawn the real Python agent on a real socket and check the

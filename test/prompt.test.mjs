@@ -120,6 +120,30 @@ test("extension wiring", async (t) => {
     assert.match(js, /pairing-disabled/);
   });
 
+  await t.test("the DOM layer reads rendered code blocks, not just fences", () => {
+    const site = read("extension/site.js");
+    assert.match(site, /querySelectorAll\("pre"\)/);
+    assert.match(site, /codeBlocksIn/);
+    assert.match(site, /blocks: codeBlocksIn/);
+    // languages are read from the block, never guessed from the text alone
+    assert.match(site, /language-/);
+  });
+
+  await t.test("blocks survive the trip to the decider", () => {
+    assert.match(read("extension/content.js"), /blocks: codeBlocks/);
+    assert.match(read("extension/background.js"), /blocks: Array\.isArray\(msg\.blocks\)/);
+  });
+
+  await t.test("a block that cannot run is reported, not swallowed", () => {
+    const js = read("extension/content.js");
+    assert.match(js, /saw \$\{res\.saw\.blocks\} code block/);
+    assert.match(js, /not executable/);
+  });
+
+  await t.test("the agent logs every command it is asked to run", () => {
+    assert.match(read("kali/bridge_agent.py"), /log\("%s %s" % \(route, one_line/);
+  });
+
   await t.test("the agent gates /pair on an extension origin", () => {
     const py = read("kali/bridge_agent.py");
     assert.match(py, /chrome-extension:\/\//);

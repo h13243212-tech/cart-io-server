@@ -1,17 +1,14 @@
 {
-  "name": "cart-io-server",
-  "version": "0.2.0",
+  "name": "slipstream",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Cart.io authoritative game server",
-  "main": "index.js",
+  "description": "A one-thumb drift racer with ghost laps. HTML5, no dependencies.",
   "scripts": {
-    "start": "node index.js"
+    "start": "node tools/serve.mjs",
+    "test": "node --test test/*.test.js",
+    "check": "node tools/drive-test.mjs",
+    "build": "node tools/build.mjs"
   },
-  "engines": {
-    "node": ">=18"
-  },
-  "dependencies": {
-    "ws": "^8.18.0"
-  }
+  "engines": { "node": ">=18" }
 }

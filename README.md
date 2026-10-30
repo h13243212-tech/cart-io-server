@@ -23,7 +23,7 @@ arena:   Three services. 22 is ssh, 8080 is your app…
 In a terminal **inside the VM**:
 
 ```bash
-git clone https://github.com/h13243212-tech/arena-kali
+git clone https://github.com/h13243212-tech/cart-io-server arena-kali
 bash arena-kali/kali/start.sh
 ```
 

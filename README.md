@@ -43,7 +43,17 @@ Otherwise the VM's `8787` has to appear as `127.0.0.1:8787` on your own machine:
 - **macOS / Linux** — double-click `setup/mac-linux-portforward.command`, type your VM name.
 
 Run it while the VM is **running**. It replaces the rule each time, so re-running
-is always safe. No VirtualBox, or the VM is on another machine? Tunnel instead:
+is always safe.
+
+**Windows 11 + VirtualBox, the usual case:** adapter 1 must be **NAT** (the
+default), and the agent must not be listening on the VM's loopback only — a NAT
+forward delivers the connection to the VM's own address (`10.0.2.15`), so a
+loopback-only agent looks "connection refused" from Windows even while it says
+it is listening. `kali/start.sh` notices the `10.0.2.15` address and binds the
+adapter for you; you will see it say *"VirtualBox NAT detected"* when it does.
+Nothing outside the VM can reach that port except through the forward.
+
+No VirtualBox, or the VM is on another machine? Tunnel instead:
 
 ```bash
 ssh -N -L 8787:127.0.0.1:8787 kali@your-vm
@@ -87,6 +97,7 @@ stop** (or close the tab) to disarm.
 | What you see | What it means |
 |---|---|
 | `Nothing listening on 8787` | Agent not started, or step 2 not done. The VM must be *running* when you run the setup script. |
+| `connection refused` from Windows, agent clearly running | The VirtualBox NAT case above: the agent bound `127.0.0.1` inside the VM. Restart it — `bash kali/start.sh` prints *"VirtualBox NAT detected"* when it binds the adapter. If your adapter is **Bridged** instead of NAT, the extension will not reach it either (it only accepts loopback addresses); use the `ssh -L` tunnel. |
 | `Pairing is switched off` | The agent was started with `--no-pair`. Copy the token from its window into the popup's **Advanced** box. |
 | Green dot, but the model just talks | The chat is not in Direct mode, or the panel is not armed. |
 | `no chat input box found` | arena.ai changed its markup. Press `?` in the panel — **Diagnose** reports what it found — then paste selectors into the popup's **Advanced** fields. |
@@ -159,8 +170,7 @@ extension/content.js         the panel, the settle-debounce, the typing
 extension/background.js      the only decider; imports lib/loop.js
 extension/lib/loop.js        pure decision logic — no DOM, fully tested
 extension/popup.*            Pair, plus Advanced escape hatches
-prompts/system-prompt.md     the same contract, documented (for pasting by hand)
-test/                        53 tests, no browser needed
+test/                        64 tests, no browser needed
 ```
 
 Agent flags:
@@ -177,14 +187,16 @@ python3 kali/bridge_agent.py --help
 ## Tests
 
 ```bash
-npm test        # 53 passing
+npm test        # 64 passing
 ```
 
 The agent tests spawn the real Python agent on a real socket and check the
 contract: exit codes, separated streams, a timeout that actually kills the
 process group, output capping, token rejection, the seatbelt, and that `/pair`
-refuses every non-extension origin. The loop tests cover the parser — including
-the case where a reply contains an unterminated fence, which must never execute.
+refuses every non-extension origin. The setup tests run `kali/start.sh` with a
+fake `ip` and a fake `python3`, so they can prove the VirtualBox NAT binding
+without a VM. The loop tests cover the parser — including the case where a reply
+contains an unterminated fence, which must never execute.
 
 **What is not verified:** the DOM layer has never run against the live arena.ai
 markup. The selectors in `site.js` are heuristics. The Diagnose panel and the

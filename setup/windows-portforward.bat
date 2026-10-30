@@ -54,8 +54,13 @@ if errorlevel 1 (
 )
 
 echo.
-echo   [OK] Port forwarded. Test it in the browser:
-echo        http://127.0.0.1:8787/health   -^>  expects "unauthorised" ^(that is correct^)
+echo   [OK] Port forwarded.
+echo.
+echo   Test it on this PC:
+echo        curl -i http://127.0.0.1:8787/health
+echo   "unauthorised" ^(401^) is the correct answer. "connection refused" means
+echo   the agent inside the VM is not listening on the VM's own address - run
+echo   kali/start.sh again and look for "VirtualBox NAT detected".
 echo.
 echo   Keep the VM running. Next: load the extension and click Pair.
 echo.

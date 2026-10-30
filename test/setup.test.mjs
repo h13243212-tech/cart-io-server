@@ -88,6 +88,8 @@ test("the instructions match the script", async (t) => {
 
   await t.test("README leads with the one-time install, not a wall of steps", () => {
     const readme = read("README.md");
+    assert.match(readme, /git clone .*cart-io-server/);
+    assert.match(readme, /sudo bash arena-kali\/kali\/install\.sh/);
     assert.match(readme, /curl -fsSL .*kali\/install\.sh \| sudo bash/);
     assert.match(readme, /systemctl status arena-bridge/);
     assert.ok(readme.indexOf("## Install once") < readme.indexOf("## Every time"));
@@ -153,6 +155,15 @@ test("kali/install.sh", async (t) => {
   await t.test("updates an existing checkout instead of stacking copies", () => {
     assert.match(sh, /if \[ -d "\$DEST\/\.git" \]/);
     assert.match(sh, /git -C "\$DEST" pull --ff-only/);
+  });
+
+  await t.test("works from a folder copied into a VM with no internet", () => {
+    // the README offers this path, so it must not quietly re-clone
+    assert.match(sh, /installing from this checkout/);
+    assert.ok(sh.includes('cp -a "$SRC_ROOT/." "$DEST/"'), "the copy line moved");
+    // and git is only a requirement when we actually clone
+    assert.ok(sh.indexOf("command -v python3") < sh.indexOf("command -v git") ||
+              !/command -v git/.test(sh), "git must not be a hard requirement");
   });
 
   await t.test("degrades to instructions when systemd is absent", () => {

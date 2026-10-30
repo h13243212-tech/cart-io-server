@@ -60,16 +60,26 @@ say "  ------------------------------------"
 say ""
 
 # --- get the code -------------------------------------------------------
-if ! command -v git >/dev/null 2>&1; then
-  say "  git is missing. Install it with:  sudo apt install -y git"
-  exit 1
-fi
 if ! command -v python3 >/dev/null 2>&1; then
   say "  python3 is missing. Install it with:  sudo apt install -y python3"
   exit 1
 fi
 
-if [ -d "$DEST/.git" ]; then
+# Run from a checkout (git clone, or a folder copied into the VM by hand)?
+# Copy it, so a VM with no internet is a supported case rather than a wall.
+SELF="${BASH_SOURCE[0]:-}"
+SRC_ROOT=""
+if [ -n "$SELF" ] && [ -f "$SELF" ]; then
+  SRC_ROOT="$(cd "$(dirname "$SELF")/.." 2>/dev/null && pwd)"
+  [ -f "$SRC_ROOT/kali/bridge_agent.py" ] || SRC_ROOT=""
+fi
+
+if [ -n "$SRC_ROOT" ] && [ "$SRC_ROOT" != "$DEST" ]; then
+  say "  installing from this checkout: $SRC_ROOT"
+  rm -rf "$DEST"
+  mkdir -p "$DEST"
+  cp -a "$SRC_ROOT/." "$DEST/" || { say "  copy failed"; exit 1; }
+elif [ -d "$DEST/.git" ]; then
   say "  updating $DEST"
   git -C "$DEST" pull --ff-only -q || say "  (update failed — keeping what is there)"
 else

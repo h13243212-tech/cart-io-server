@@ -19,8 +19,12 @@ arena:   Three services. 22 is ssh, 8080 is your app…
 ### 1. In the VM: one command
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/h13243212-tech/cart-io-server/main/kali/install.sh | sudo bash
+git clone https://github.com/h13243212-tech/cart-io-server arena-kali
+sudo bash arena-kali/kali/install.sh
 ```
+
+(Or, if `git` is a hassle, the same thing in one line —
+`curl -fsSL https://raw.githubusercontent.com/h13243212-tech/cart-io-server/main/kali/install.sh | sudo bash`.)
 
 That clones the repo into `/opt/arena-kali`, installs a `systemd` service,
 starts it, and makes it start with the VM every time. No terminal left open, no
@@ -32,7 +36,8 @@ journalctl -u arena-bridge -n 30       # what has it been doing?
 ```
 
 No internet in the VM? Clone on the host, copy the folder in, then
-`sudo bash kali/install.sh` from inside it — same result.
+`sudo bash kali/install.sh` from inside it — it installs from that copy instead
+of downloading again.
 
 ### 2. On the machine with the browser: one double-click
 
@@ -172,7 +177,7 @@ extension/content.js         the panel, the settle-debounce, the typing
 extension/background.js      the only decider; imports lib/loop.js
 extension/lib/loop.js        pure decision logic — no DOM, fully tested
 extension/popup.*            Connect, plus Advanced escape hatches
-test/                        72 tests, no browser needed
+test/                        73 tests, no browser needed
 ```
 
 Agent flags (for `kali/start.sh`, or add them to the unit's `ExecStart`):
@@ -189,7 +194,7 @@ Agent flags (for `kali/start.sh`, or add them to the unit's `ExecStart`):
 ## Tests
 
 ```bash
-npm test        # 72 passing
+npm test        # 73 passing
 ```
 
 The agent tests spawn the real Python agent on a real socket and check the

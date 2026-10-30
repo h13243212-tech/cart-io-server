@@ -42,19 +42,32 @@ if "!VMNAME!"=="" (
 
 echo.
 echo   Adding 127.0.0.1:8787 -^> guest 8787 on "!VMNAME!" ...
+rem Try the permanent route first: it is written into the VM's settings, so
+rem it survives reboots. VirtualBox only allows that while the VM is off.
+"!VBM!" modifyvm "!VMNAME!" --natpf1 delete "arena-kali" >nul 2>&1
+"!VBM!" modifyvm "!VMNAME!" --natpf1 "arena-kali,tcp,127.0.0.1,8787,,8787" >nul 2>&1
+if not errorlevel 1 goto saved
+
+echo   VM is running, so this rule lasts until the VM shuts down.
+echo   To make it permanent: shut the VM down, then run this file again.
 "!VBM!" controlvm "!VMNAME!" natpf1 delete "arena-kali" >nul 2>&1
 "!VBM!" controlvm "!VMNAME!" natpf1 "arena-kali,tcp,127.0.0.1,8787,,8787"
 if errorlevel 1 (
   echo.
   echo   [X] VirtualBox refused it.
-  echo       - Is the VM actually running?  ^(rule must be added while running^)
   echo       - Is Adapter 1 set to NAT?  ^(Settings ^> Network^)
+  echo       - VM name typed exactly as VirtualBox shows it?
   pause
   exit /b 1
 )
+goto done
 
+:saved
+echo   [OK] Saved permanently in the VM's settings.
+
+:done
 echo.
-echo   [OK] Port forwarded.
+echo   Port forwarded.
 echo.
 echo   Test it on this PC:
 echo        curl -i http://127.0.0.1:8787/health
@@ -62,6 +75,6 @@ echo   "unauthorised" ^(401^) is the correct answer. "connection refused" means
 echo   the agent inside the VM is not listening on the VM's own address - run
 echo   kali/start.sh again and look for "VirtualBox NAT detected".
 echo.
-echo   Keep the VM running. Next: load the extension and click Pair.
+echo   Next: load the extension, open arena.ai and press CONNECT.
 echo.
 pause

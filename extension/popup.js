@@ -51,8 +51,8 @@ function health() {
   chrome.runtime.sendMessage({ type: "akb:health" }, h => {
     if (!h) return setStatus("down", "No response from the extension worker. Reload it.");
     if (h.ok) return setStatus("up", `Connected to ${h.user}@${h.host}.\nYou're done — open arena.ai.`, true);
-    if (h.error === "wrong-token") return setStatus("down", "Reachable, but the token was rejected. Pair again.");
-    if (h.error === "no-token") return setStatus("down", "Not paired yet — click Pair.");
+    if (h.error === "wrong-token") return setStatus("down", "Reachable, but the token was rejected. Connect again.");
+    if (h.error === "no-token") return setStatus("down", "Not connected yet — click Connect.");
     if (h.error === "offline") {
       return setStatus("down", "Nothing listening on 8787.\nIs the agent running in Kali, and is the port forward set up?");
     }
@@ -61,7 +61,7 @@ function health() {
 }
 
 function pair() {
-  setStatus("", "Asking the VM for a token…");
+  setStatus("", "Connecting to the VM…");
   chrome.runtime.sendMessage({ type: "akb:pair" }, r => {
     if (!r) return setStatus("down", "No response from the extension worker. Reload it.");
     if (r.ok) {
@@ -74,7 +74,7 @@ function pair() {
     if (r.error === "pairing-disabled") {
       return setStatus("down", "Pairing is switched off on this agent (started with --no-pair).\nPaste the token under Advanced.");
     }
-    setStatus("down", "Pairing failed: " + r.error + "\nPaste the token under Advanced instead.");
+    setStatus("down", "Connect failed: " + r.error + "\nPaste the token under Advanced instead.");
   });
 }
 

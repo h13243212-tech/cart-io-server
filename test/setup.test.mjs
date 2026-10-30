@@ -80,10 +80,17 @@ test("kali/start.sh and VirtualBox NAT", async (t) => {
 test("the instructions match the script", async (t) => {
   await t.test("README explains the NAT binding", () => {
     const readme = read("README.md");
-    assert.match(readme, /Windows 11 \+ VirtualBox/);
+    assert.match(readme, /VirtualBox NAT/);
     assert.match(readme, /10\.0\.2\.15/);
     assert.match(readme, /connection refused/);
     assert.match(readme, /ssh -L/);
+  });
+
+  await t.test("README leads with the one-time install, not a wall of steps", () => {
+    const readme = read("README.md");
+    assert.match(readme, /curl -fsSL .*kali\/install\.sh \| sudo bash/);
+    assert.match(readme, /systemctl status arena-bridge/);
+    assert.ok(readme.indexOf("## Install once") < readme.indexOf("## Every time"));
   });
 
   await t.test("the Windows script replaces its rule instead of stacking them", () => {
@@ -106,5 +113,50 @@ test("the instructions match the script", async (t) => {
     const files = fs.readdirSync(ROOT).filter((f) => f !== ".git").sort();
     assert.deepEqual(files, [".gitignore", "README.md", "extension", "kali",
       "package.json", "setup", "test"]);
+  });
+});
+
+
+/* ------------------------------------------------------------------
+   The installer is the difference between "five manual steps every
+   session" and "install once". It has to be safe with a stale checkout,
+   idempotent, and reversible.
+   ------------------------------------------------------------------ */
+test("kali/install.sh", async (t) => {
+  const sh = read("kali/install.sh");
+
+  await t.test("is executable and installs a boot-time service", () => {
+    const mode = fs.statSync(path.join(ROOT, "kali", "install.sh")).mode;
+    assert.ok(mode & 0o111, "install.sh is not executable");
+    assert.match(sh, /systemctl enable arena-bridge/);
+    assert.match(sh, /WantedBy=multi-user\.target/);
+    assert.match(sh, /Restart=always/);
+  });
+
+  await t.test("pins the VirtualBox NAT bind into the unit", () => {
+    // systemd will not re-detect anything, so the flag is baked in at install
+    assert.match(sh, /10\.0\.2\.15/);
+    assert.match(sh, /ExecStart=.*bridge_agent\.py --host \$HOST --port \$PORT/);
+  });
+
+  await t.test("refuses to run unprivileged", () => {
+    assert.match(sh, /id -u/);
+    assert.match(sh, /needs root/);
+  });
+
+  await t.test("can be undone", () => {
+    assert.match(sh, /--uninstall/);
+    assert.match(sh, /systemctl disable --now arena-bridge/);
+    assert.match(sh, /rm -rf "\$DEST"/);
+  });
+
+  await t.test("updates an existing checkout instead of stacking copies", () => {
+    assert.match(sh, /if \[ -d "\$DEST\/\.git" \]/);
+    assert.match(sh, /git -C "\$DEST" pull --ff-only/);
+  });
+
+  await t.test("degrades to instructions when systemd is absent", () => {
+    assert.match(sh, /No systemd here/);
+    assert.match(sh, /@reboot/);
   });
 });

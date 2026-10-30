@@ -96,18 +96,21 @@ test("extension wiring", async (t) => {
   await t.test("the popup has one obvious action", () => {
     const html = read("extension/popup.html");
     assert.match(html, /id="pair"/);
-    assert.match(html, /Pair with my VM/);
+    assert.match(html, /Connect to my VM/);
     // the token box must not be the primary path any more
     assert.match(html, /<details>/);
     assert.ok(html.indexOf('id="pair"') < html.indexOf('id="token"'));
   });
 
-  await t.test("the content script offers a start button and arms itself", () => {
+  await t.test("the panel connects on its own: pair, teach, arm", () => {
     const js = read("extension/content.js");
-    assert.match(js, /START SESSION/);
     assert.match(js, /function startSession/);
+    // the one click must not send the user to the popup for a token
+    assert.match(js, /akb:pair/);
+    assert.match(js, /asking the VM for a token/);
     assert.match(js, /setArmed\(true\)/);
     assert.match(js, /AKB_PROMPT/);
+    assert.match(js, />CONNECT</);
   });
 
   await t.test("the background worker can pair", () => {

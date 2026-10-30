@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Arena ⇄ Kali</title>
+<style>
+  :root { color-scheme: dark; }
+  body { width: 330px; margin: 0; padding: 14px; background: #0d1117; color: #e6edf3;
+         font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font-size: 13px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
+  .dot.up { background: #3fb950; } .dot.down { background: #f85149; }
+  label { display: block; font-size: 10px; color: #8b949e; margin: 10px 0 4px;
+          letter-spacing: .07em; text-transform: uppercase; }
+  input[type=text], input[type=password], input[type=number] {
+    width: 100%; box-sizing: border-box; padding: 7px 9px; background: #161b22;
+    color: #e6edf3; border: 1px solid #30363d; border-radius: 6px;
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; margin-bottom: 6px; }
+  input:focus { outline: none; border-color: #58a6ff; }
+  .row { display: flex; gap: 8px; margin-top: 10px; }
+  button { flex: 1; padding: 8px; border-radius: 6px; cursor: pointer; border: 1px solid #30363d;
+           background: #21262d; color: #e6edf3; font: 600 12px ui-sans-serif, system-ui, sans-serif; }
+  button:hover { background: #30363d; }
+  button.primary { background: #238636; border-color: #2ea043; }
+  button.primary:hover { background: #2ea043; }
+  .status { margin-top: 10px; font-size: 12px; color: #8b949e; min-height: 32px; }
+  details { margin-top: 12px; border-top: 1px solid #21262d; padding-top: 10px; }
+  summary { font-size: 11px; color: #8b949e; cursor: pointer; }
+  .hint { font-size: 11px; color: #6e7681; margin-top: 10px; line-height: 1.5; }
+  code { background: #161b22; padding: 1px 4px; border-radius: 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+  <h1><span class="dot" id="dot"></span> Arena ⇄ Kali</h1>
+
+  <label for="base">Agent address</label>
+  <input id="base" type="text" spellcheck="false" placeholder="http://127.0.0.1:8787" />
+
+  <label for="token">Token</label>
+  <input id="token" type="password" spellcheck="false" placeholder="from the agent's console" />
+
+  <label for="maxSteps">Max steps per run</label>
+  <input id="maxSteps" type="number" min="1" max="100" value="24" />
+
+  <div class="row">
+    <button id="test">Test</button>
+    <button id="save" class="primary">Save</button>
+  </div>
+
+  <div class="status" id="status">Not tested yet.</div>
+
+  <details>
+    <summary>Manual selectors (only if Diagnose says something is missing)</summary>
+    <label for="selComposer">Input box</label>
+    <input id="selComposer" type="text" spellcheck="false" placeholder="textarea#prompt" />
+    <label for="selSend">Send button</label>
+    <input id="selSend" type="text" spellcheck="false" placeholder="button[aria-label=Send]" />
+    <label for="selReply">Assistant reply</label>
+    <input id="selReply" type="text" spellcheck="false" placeholder="[data-role=assistant]" />
+  </details>
+
+  <div class="hint">
+    VirtualBox NAT? Forward host <code>8787</code> → guest <code>8787</code>.
+    Remote VM? <code>ssh -N -L 8787:127.0.0.1:8787 kali@vm</code>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

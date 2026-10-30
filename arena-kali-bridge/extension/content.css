@@ -1,0 +1,91 @@
+/* Scoped, `all: initial` at the root so nothing leaks either way. */
+
+#akb-panel {
+  all: initial;
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  z-index: 2147483000;
+  display: flex;
+  flex-direction: column;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #e6edf3;
+  background: rgba(13, 17, 23, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+#akb-panel.akb-collapsed .akb-body { display: none; }
+#akb-panel.akb-armed { border-color: rgba(248, 81, 73, 0.75); }
+
+#akb-panel .akb-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+#akb-panel .akb-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #6b7280; flex: 0 0 auto;
+}
+#akb-panel .akb-dot[data-state="up"]   { background: #3fb950; }
+#akb-panel .akb-dot[data-state="down"] { background: #f85149; }
+#akb-panel .akb-name { font-weight: 700; letter-spacing: .1em; }
+#akb-panel .akb-host {
+  flex: 1 1 auto; color: #8b949e; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+
+#akb-panel .akb-mini {
+  all: initial;
+  font-family: inherit; font-size: 11px; color: #e6edf3;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px; padding: 2px 8px; cursor: pointer;
+}
+#akb-panel .akb-mini:hover { background: rgba(255, 255, 255, 0.17); }
+
+#akb-panel .akb-body { display: flex; flex-direction: column; }
+#akb-panel .akb-controls {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+#akb-panel .akb-arm {
+  all: initial;
+  flex: 1 1 auto;
+  font-family: inherit; font-size: 11px; font-weight: 700;
+  letter-spacing: .14em; text-align: center;
+  color: #0d1117; background: #6e7681;
+  border-radius: 6px; padding: 7px 10px; cursor: pointer;
+}
+#akb-panel .akb-arm:hover { background: #8b949e; }
+#akb-panel .akb-arm.akb-on { background: #f85149; color: #fff; animation: akb-pulse 1.6s ease-in-out infinite; }
+@keyframes akb-pulse { 0%,100% { opacity: 1 } 50% { opacity: .68 } }
+#akb-panel .akb-steps { color: #8b949e; font-size: 11px; white-space: nowrap; }
+
+#akb-panel .akb-log {
+  max-height: 240px; overflow-y: auto;
+  padding: 8px 10px;
+  white-space: pre-wrap; word-break: break-word;
+  overscroll-behavior: contain;
+}
+#akb-panel .akb-row { margin: 0; }
+#akb-panel .akb-meta  { color: #8b949e; }
+#akb-panel .akb-cmd   { color: #7ee787; }
+#akb-panel .akb-good  { color: #3fb950; }
+#akb-panel .akb-warn  { color: #f0b72f; }
+#akb-panel .akb-err   { color: #ff9b91; }
+
+#akb-panel .akb-manual {
+  padding: 8px 10px;
+  border-top: 1px solid rgba(248, 81, 73, 0.35);
+  background: rgba(248, 81, 73, 0.12);
+}
+#akb-panel .akb-manual .akb-mini { width: 100%; padding: 6px; }

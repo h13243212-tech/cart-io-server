@@ -74,6 +74,9 @@ function pair() {
     if (r.error === "pairing-disabled") {
       return setStatus("down", "Pairing is switched off on this agent (started with --no-pair).\nPaste the token under Advanced.");
     }
+    if (r.error === "pairing-origin") {
+      return setStatus("down", "The VM refused this extension's pairing.\nPaste the token under Advanced:\n  sudo cat /root/.arena-bridge/token");
+    }
     setStatus("down", "Connect failed: " + r.error + "\nPaste the token under Advanced instead.");
   });
 }

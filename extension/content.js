@@ -128,8 +128,10 @@
         const p = await ask("akb:pair");
         if (!p || !p.ok) {
           row("err", p?.error === "pairing-disabled"
-            ? "the VM's agent has pairing off (--no-pair) — paste the token in the extension popup"
-            : "cannot reach the VM — is the agent running?");
+            ? "pairing is off on the VM (--no-pair) — paste the token in the extension popup"
+            : p?.error === "pairing-origin"
+              ? "the VM refused this extension's pairing — its log says why; paste the token instead"
+              : "cannot reach the VM — is the agent running?");
           setDot("down", "offline");
           return;
         }

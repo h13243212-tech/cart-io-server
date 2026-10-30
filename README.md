@@ -133,9 +133,13 @@ Decisions worth knowing:
   cannot `fetch` `http://127.0.0.1`, and a content script inherits that
   restriction — only the extension's service worker, which declares
   `host_permissions`, can reach it.
-- **Pairing is gated on `Origin: chrome-extension://…`**, a header the browser
-  sets and page JavaScript cannot forge. Another browser extension could still
-  pair, so every pairing is logged to the journal, and `--no-pair` closes it.
+- **Pairing refuses page origins.** A web page cannot forge its `Origin`, and
+  CORS headers are only echoed for allowed origins, so a page cannot read a
+  token even if it can trigger the request. A *missing* `Origin` is accepted —
+  Chrome does not always attach one to a privileged extension-worker fetch, and
+  a local process that could send none could read the token file anyway.
+  Another extension could still pair, so every attempt is logged to the journal
+  and `--no-pair` closes the door.
 - **The agent binds loopback unless it sees VirtualBox NAT.** With NAT the port
   is reachable only from inside the VM and through the host-side forward, which
   the setup scripts bind to `127.0.0.1`.

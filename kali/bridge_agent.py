@@ -154,20 +154,33 @@ class Handler(BaseHTTPRequestHandler):
         })
 
     # -- pairing -------------------------------------------------------
-    # Removes the copy-the-token step. The gate is the Origin header: only a
-    # browser extension can send Origin: chrome-extension://..., and a web
-    # page cannot forge it (the browser sets it). Not perfect — another
-    # extension could also pair — so --no-pair exists, and every pairing is
-    # logged loudly.
+    # Removes the copy-the-token step. The gate is the Origin header: a web
+    # page cannot forge Origin, so a page origin is refused, and another
+    # browser extension could still pair — hence --no-pair, and a loud log
+    # line on every attempt, successful or not.
+    #
+    # A *missing* Origin is allowed. It is not a bypass: browsers always send
+    # Origin on the CORS fetches a page would need in order to read the reply,
+    # so a page that reaches this endpoint cannot read the token it triggers
+    # (CORS headers are only echoed for allowed origins). Chrome does not
+    # always attach Origin to a privileged extension-worker fetch, which is
+    # exactly the case that used to fail here — and a local process that could
+    # send no Origin could read the token file anyway.
     def _pair(self):
-        if not Config.allow_pair:
-            self._send_json(403, {"error": "pairing disabled (--no-pair)"})
-            return
         origin = self.headers.get("Origin", "")
-        if not (origin.startswith("chrome-extension://") or origin.startswith("moz-extension://")):
-            self._send_json(403, {"error": "pairing is only available to a browser extension"})
+        if not Config.allow_pair:
+            log("pair attempt refused: pairing disabled (--no-pair), origin=%r" % origin)
+            self._send_json(403, {"error": "pairing disabled (--no-pair)", "code": "disabled"})
             return
-        log("paired with extension origin %s" % origin)
+        allowed = (not origin) or origin.startswith("chrome-extension://") or origin.startswith("moz-extension://")
+        if not allowed:
+            log("pair attempt refused: not an extension origin %r" % origin)
+            self._send_json(403, {
+                "error": "pairing is only available to a browser extension",
+                "code": "origin",
+            })
+            return
+        log("paired with origin %r" % (origin or "<none: local client or extension worker>"))
         self._send_json(200, {
             "token": Config.token,
             "agent": VERSION,

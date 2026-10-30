@@ -164,18 +164,24 @@ test("agent /pair", async (t) => {
     assert.equal((await res.json()).token, TOKEN);
   });
 
-  await t.test("refuses a web page", async () => {
+  await t.test("refuses a web page, and says why", async () => {
     // both a plausible attacker page and the site the extension runs on
     for (const origin of ["https://evil.example", "https://arena.ai", "null", "http://127.0.0.1:3000"]) {
       const res = await pairReq(a.base, origin);
       assert.equal(res.status, 403, `origin ${origin} should be refused`);
-      assert.equal((await res.json()).token, undefined);
+      const body = await res.json();
+      assert.equal(body.token, undefined);
+      assert.equal(body.code, "origin", "the extension needs to tell this apart from --no-pair");
     }
   });
 
-  await t.test("refuses a request with no Origin at all", async () => {
+  await t.test("accepts a client with no Origin (extension worker, or curl)", async () => {
+    // Chrome does not always attach Origin to a privileged extension-worker
+    // fetch, and that used to read as "pairing is off". A page cannot omit
+    // Origin on the requests it would need in order to read the token.
     const res = await pairReq(a.base, null);
-    assert.equal(res.status, 403);
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).token, TOKEN);
   });
 
   await t.test("refuses a lookalike scheme", async () => {
@@ -197,7 +203,9 @@ test("agent --no-pair closes the door", async (t) => {
   t.after(a.cleanup);
   const res = await pairReq(a.base, "chrome-extension://abcdefghijklmnop");
   assert.equal(res.status, 403);
-  assert.equal((await res.json()).token, undefined);
+  const body = await res.json();
+  assert.equal(body.token, undefined);
+  assert.equal(body.code, "disabled", "--no-pair must not look like an origin refusal");
   // the token the user was given still works; only the hand-out stopped
   assert.equal((await run(a.base, "echo still-fine")).body.out, "still-fine\n");
 });

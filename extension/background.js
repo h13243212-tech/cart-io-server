@@ -64,7 +64,12 @@ async function pair() {
   } catch {
     return { ok: false, error: "offline" };
   }
-  if (res.status === 403) return { ok: false, error: "pairing-disabled" };
+  if (res.status === 403) {
+    // the agent says which kind of refusal this is; guessing was misleading
+    let code = "pairing-origin";
+    try { code = (await res.json()).code === "disabled" ? "pairing-disabled" : "pairing-origin"; } catch { /* keep */ }
+    return { ok: false, error: code };
+  }
   if (!res.ok) return { ok: false, error: "http-" + res.status };
   try {
     const j = await res.json();

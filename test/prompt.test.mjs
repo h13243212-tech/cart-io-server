@@ -96,7 +96,9 @@ test("extension wiring", async (t) => {
   await t.test("the popup has one obvious action", () => {
     const html = read("extension/popup.html");
     assert.match(html, /id="pair"/);
-    assert.match(html, /Connect to my VM/);
+    // the popup must not claim to be the thing that starts the loop
+    assert.doesNotMatch(html, /Connect to my VM/);
+    assert.match(html, /Test connection/);
     // the token box must not be the primary path any more
     assert.match(html, /<details>/);
     assert.ok(html.indexOf('id="pair"') < html.indexOf('id="token"'));

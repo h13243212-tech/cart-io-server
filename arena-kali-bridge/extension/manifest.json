@@ -1,9 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Arena ⇄ Kali",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Lets an Arena Direct-mode chat run commands on your own Kali VM, by simulating the tool loop through the chat UI.",
-  "permissions": ["storage"],
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "http://127.0.0.1:8787/*",
     "http://localhost:8787/*"
@@ -22,8 +24,14 @@
         "https://arena.ai/*",
         "https://*.arena.ai/*"
       ],
-      "js": ["site.js", "content.js"],
-      "css": ["content.css"],
+      "js": [
+        "site.js",
+        "prompt.js",
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
     }
   ]

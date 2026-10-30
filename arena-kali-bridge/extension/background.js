@@ -52,6 +52,30 @@ async function health() {
   try { return await res.json(); } catch { return { ok: false, error: "bad-response" }; }
 }
 
+/** Ask the agent for its token, so the user never copies one.
+    Works only because this worker's fetch carries Origin:
+    chrome-extension://<id>, which a web page cannot set. The agent still
+    gates on it and logs every pairing. */
+async function pair() {
+  const { base } = await config();
+  let res;
+  try {
+    res = await fetch(base + "/pair", { method: "GET" });
+  } catch {
+    return { ok: false, error: "offline" };
+  }
+  if (res.status === 403) return { ok: false, error: "pairing-disabled" };
+  if (!res.ok) return { ok: false, error: "http-" + res.status };
+  try {
+    const j = await res.json();
+    if (!j || !j.token) return { ok: false, error: "bad-response" };
+    await chrome.storage.local.set({ token: j.token });
+    return { ok: true, token: j.token, host: j.host || "" };
+  } catch {
+    return { ok: false, error: "bad-response" };
+  }
+}
+
 /** One command, one JSON result. */
 async function runCommand(cmd, timeout_s = 120) {
   const { res, error } = await call("/run", {
@@ -75,6 +99,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "akb:health") {
     health().then(sendResponse);
+    return true;
+  }
+
+  if (msg.type === "akb:pair") {
+    pair().then(sendResponse);
     return true;
   }
 

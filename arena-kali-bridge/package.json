@@ -1,12 +1,15 @@
 {
   "name": "arena-kali-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Let an Arena Direct-mode chat run commands on your own Kali VM by simulating the tool loop through the chat UI.",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "agent": "python3 agent/bridge_agent.py"
+    "agent": "python3 kali/bridge_agent.py",
+    "start": "sh kali/start.sh"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }

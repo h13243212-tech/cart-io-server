@@ -23,7 +23,10 @@
   button:hover { background: #30363d; }
   button.primary { background: #238636; border-color: #2ea043; }
   button.primary:hover { background: #2ea043; }
-  .status { margin-top: 10px; font-size: 12px; color: #8b949e; min-height: 32px; }
+  button.big { padding: 11px; font-size: 13px; }
+  .status { margin-top: 10px; font-size: 12px; color: #8b949e; min-height: 46px;
+            white-space: pre-wrap; }
+  .status.good { color: #3fb950; }
   details { margin-top: 12px; border-top: 1px solid #21262d; padding-top: 10px; }
   summary { font-size: 11px; color: #8b949e; cursor: pointer; }
   .hint { font-size: 11px; color: #6e7681; margin-top: 10px; line-height: 1.5; }
@@ -33,36 +36,37 @@
 <body>
   <h1><span class="dot" id="dot"></span> Arena ⇄ Kali</h1>
 
-  <label for="base">Agent address</label>
-  <input id="base" type="text" spellcheck="false" placeholder="http://127.0.0.1:8787" />
-
-  <label for="token">Token</label>
-  <input id="token" type="password" spellcheck="false" placeholder="from the agent's console" />
-
-  <label for="maxSteps">Max steps per run</label>
-  <input id="maxSteps" type="number" min="1" max="100" value="24" />
-
-  <div class="row">
-    <button id="test">Test</button>
-    <button id="save" class="primary">Save</button>
-  </div>
-
-  <div class="status" id="status">Not tested yet.</div>
+  <button id="pair" class="primary big">Pair with my VM</button>
+  <div class="status" id="status">Not paired yet.</div>
 
   <details>
-    <summary>Manual selectors (only if Diagnose says something is missing)</summary>
-    <label for="selComposer">Input box</label>
+    <summary>Advanced</summary>
+
+    <label for="base">Agent address</label>
+    <input id="base" type="text" spellcheck="false" placeholder="http://127.0.0.1:8787" />
+
+    <label for="token">Token</label>
+    <input id="token" type="password" spellcheck="false" placeholder="filled in by Pair" />
+
+    <label for="maxSteps">Max steps per run</label>
+    <input id="maxSteps" type="number" min="1" max="100" value="24" />
+
+    <label for="selComposer">Input box (only if Diagnose says it is missing)</label>
     <input id="selComposer" type="text" spellcheck="false" placeholder="textarea#prompt" />
     <label for="selSend">Send button</label>
     <input id="selSend" type="text" spellcheck="false" placeholder="button[aria-label=Send]" />
     <label for="selReply">Assistant reply</label>
     <input id="selReply" type="text" spellcheck="false" placeholder="[data-role=assistant]" />
-  </details>
 
-  <div class="hint">
-    VirtualBox NAT? Forward host <code>8787</code> → guest <code>8787</code>.
-    Remote VM? <code>ssh -N -L 8787:127.0.0.1:8787 kali@vm</code>
-  </div>
+    <div class="row">
+      <button id="test">Test</button>
+      <button id="save">Save</button>
+    </div>
+    <div class="hint">
+      Remote VM instead of VirtualBox?<br />
+      <code>ssh -N -L 8787:127.0.0.1:8787 kali@vm</code>
+    </div>
+  </details>
 
   <script type="module" src="popup.js"></script>
 </body>

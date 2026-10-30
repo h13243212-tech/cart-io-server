@@ -13,7 +13,7 @@ import os from "node:os";
 import fs from "node:fs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const AGENT = path.join(HERE, "..", "agent", "bridge_agent.py");
+const AGENT = path.join(HERE, "..", "kali", "bridge_agent.py");
 const TOKEN = "test-" + Math.random().toString(36).slice(2).padEnd(36, "x");
 
 async function startAgent(extra = []) {
@@ -132,4 +132,72 @@ test("agent --deny-rm seatbelt applies to /run too", async (t) => {
   // and it does not block normal work
   const ok = await run(a.base, "echo fine");
   assert.equal(ok.body.out, "fine\n");
+});
+
+/* ------------------------------------------------------------------
+   PAIRING — the step that used to be "copy this token into that window".
+   The security property under test is precisely that a *web page* cannot
+   do it: the browser sets Origin, and page script cannot change it.
+   ------------------------------------------------------------------ */
+const pairReq = (base, origin) => fetch(base + "/pair", {
+  method: "GET",
+  headers: origin ? { Origin: origin } : {},
+});
+
+test("agent /pair", async (t) => {
+  const a = await startAgent();
+  t.after(a.cleanup);
+
+  await t.test("hands the token to a browser extension", async () => {
+    const res = await pairReq(a.base, "chrome-extension://abcdefghijklmnop");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.token, TOKEN);
+    assert.equal(typeof body.host, "string");
+    assert.equal(res.headers.get("access-control-allow-origin"),
+      "chrome-extension://abcdefghijklmnop");
+  });
+
+  await t.test("accepts a Firefox extension too", async () => {
+    const res = await pairReq(a.base, "moz-extension://11111111-2222");
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).token, TOKEN);
+  });
+
+  await t.test("refuses a web page", async () => {
+    // both a plausible attacker page and the site the extension runs on
+    for (const origin of ["https://evil.example", "https://arena.ai", "null", "http://127.0.0.1:3000"]) {
+      const res = await pairReq(a.base, origin);
+      assert.equal(res.status, 403, `origin ${origin} should be refused`);
+      assert.equal((await res.json()).token, undefined);
+    }
+  });
+
+  await t.test("refuses a request with no Origin at all", async () => {
+    const res = await pairReq(a.base, null);
+    assert.equal(res.status, 403);
+  });
+
+  await t.test("refuses a lookalike scheme", async () => {
+    for (const origin of ["chrome-extension:/x", "chrome-extensionx://a", "CHROME-EXTENSION://a"]) {
+      assert.equal((await pairReq(a.base, origin)).status, 403, `origin ${origin} should be refused`);
+    }
+  });
+
+  await t.test("a paired token actually works", async () => {
+    const { token } = await (await pairReq(a.base, "chrome-extension://zzz")).json();
+    const { status, body } = await run(a.base, "echo paired-ok", { token });
+    assert.equal(status, 200);
+    assert.equal(body.out, "paired-ok\n");
+  });
+});
+
+test("agent --no-pair closes the door", async (t) => {
+  const a = await startAgent(["--no-pair"]);
+  t.after(a.cleanup);
+  const res = await pairReq(a.base, "chrome-extension://abcdefghijklmnop");
+  assert.equal(res.status, 403);
+  assert.equal((await res.json()).token, undefined);
+  // the token the user was given still works; only the hand-out stopped
+  assert.equal((await run(a.base, "echo still-fine")).body.out, "still-fine\n");
 });

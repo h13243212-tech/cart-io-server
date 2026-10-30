@@ -1,162 +1,200 @@
 # Arena ⇄ Kali
 
-Let an Arena **Direct-mode** chat run commands on your own Kali VM. Same shape as
-ZeroScript, pointed at a shell instead of Roblox Studio.
+Ask an Arena chat to do something, and it happens on your own Kali VM — real
+shell, real tools, output typed back into the chat for you.
 
-```
-Arena tab (Direct mode)
-  └─ extension: finds ```bash blocks in the reply, watches for the reply to settle
-       └─ background worker → http://127.0.0.1:8787  (agent, running in Kali)
-            └─ bash — full access, your privileges
-       └─ types the result back into the chat and presses Enter
-```
+No commands to copy, no output to paste, no token to retype.
+
+Two pieces:
+
+| Piece | Runs where | Job |
+|---|---|---|
+| `kali/bridge_agent.py` | inside the VM | executes commands, answers on `127.0.0.1:8787` |
+| `extension/` | your browser | reads the chat, runs what the model asks, types the result back |
+
+**Four steps.** About five minutes, most of it downloads and a VM boot.
 
 ---
 
-## First: what "Arena runs commands" actually means
+## 1. Start the agent inside Kali
 
-**Arena has no tool-calling API for an extension to hook.** There is no function
-call, no MCP handshake, nothing the page exposes. So this cannot make the model
-*actually* call a tool.
-
-What it does instead — the same trick ZeroScript uses — is simulate the loop
-through the chat UI:
-
-1. You paste a prompt teaching the model a format: *"to run something, emit one
-   ```` ```bash ```` block and stop."*
-2. The model replies with text containing that block.
-3. The extension notices the reply has stopped changing, extracts the command, and
-   runs it.
-4. It types the output back into the chat box as a message and presses Enter.
-5. The model reads it and continues.
-
-So the model never makes a tool call — it emits text, and this acts on it. That
-distinction matters because it predicts the failure modes: a model that ignores the
-format, a site redesign, or a fabricated result all break the illusion. The
-[prompt](prompts/system-prompt.md) is doing real work, not decoration.
-
-## Setup
-
-### 1. Start the agent in Kali
+Get the `kali/` folder into the VM (drag & drop, `scp`, shared folder — whatever
+you already use), then:
 
 ```bash
-python3 agent/bridge_agent.py
+bash kali/start.sh
 ```
 
-Stdlib Python 3 only — nothing to install on a clean Kali. It prints a token and
-saves it to `~/.arena-bridge/token` (`0600`). It binds `127.0.0.1`.
+Double-clicking `start.sh` works in most file managers too. **Leave that window
+open** — it is the bridge. It prints a token and tells you to click Pair; you do
+not need to write the token down.
 
-### 2. Make it reachable from your browser's machine
+`python3` missing? `sudo apt install -y python3`.
 
-The extension is only allowed to talk to `127.0.0.1`, on purpose — that permission
-list is the security boundary. So bring the agent to localhost rather than opening
-it to the network.
+## 2. Open the port on your machine (once)
 
-**VirtualBox (most likely your case):** VM Settings → Network → Adapter 1 (NAT) →
-Advanced → **Port Forwarding** → add:
+The agent listens on the VM's own loopback. Your browser is outside the VM, so
+`127.0.0.1:8787` has to be forwarded in.
 
-| Name | Protocol | Host IP | Host Port | Guest IP | Guest Port |
-|---|---|---|---|---|---|
-| bridge | TCP | 127.0.0.1 | 8787 | 10.0.2.15 | 8787 |
+- **Windows** — double-click `setup/windows-portforward.bat`, type your VM name.
+- **macOS / Linux** — double-click `setup/mac-linux-portforward.command`, type your VM name.
 
-That maps `localhost:8787` on your PC to the agent inside the VM, with nothing
-exposed to your LAN.
+Run it while the VM is **running**. It replaces the rule each time, so re-running
+is always safe.
 
-**Oracle Cloud / remote VM:** don't open the port. Tunnel it:
+Not VirtualBox, or the VM is on another machine? Skip the script and tunnel:
 
 ```bash
 ssh -N -L 8787:127.0.0.1:8787 kali@your-vm
 ```
 
-> Using a bridged adapter and the VM's own LAN IP (`192.168.x.x`)? That needs
-> `host_permissions` in `manifest.json` and the regex in `popup.js` widened. It
-> works, but port forwarding is less to get wrong.
+## 3. Load the extension and pair
 
-### 3. Load the extension
+Chrome, Edge or Brave → `chrome://extensions` → turn on **Developer mode** →
+**Load unpacked** → pick the `extension/` folder. Pin it to the toolbar.
 
-`chrome://extensions` → Developer mode → **Load unpacked** → pick `extension/`.
+Click the icon → **Pair with my VM**. The dot turns green and names the machine
+it is attached to. That was the token step; it is automatic now.
 
-### 4. Connect
+## 4. Use it
 
-Open the popup, keep `http://127.0.0.1:8787`, paste the token, **Test**. The dot
-goes green and names the VM.
+Open arena.ai, start a chat, and make sure it is in **Direct mode** — the panel
+does not appear in the agentic modes because there is nothing to bridge there.
 
-### 5. Teach the model the format
+A small panel appears in the corner:
 
-Open arena.ai in **Direct** mode, start a new chat, and paste the short prompt from
-[`prompts/system-prompt.md`](prompts/system-prompt.md). The model replies with one
-line; the panel's green dot confirms the bridge.
+1. press **START SESSION** — it explains the format to the model and arms the loop;
+2. wait for `READY`;
+3. ask for anything — *"which ports are listening on this box?"*, *"stand up a
+   tiny ssh honeypot and show me the log"*, *"why is nginx 502ing?"*
 
-### 6. Arm it
-
-Click **ARM** in the panel. Nothing runs until you do, and the panel turns red.
-Ask for a task:
-
-> *"Check the network config on this box and tell me what's unusual."*
-
-Watch the log. Each command is printed before it runs, with its exit code.
+Each command the model sends appears as a `$ …` line in the panel, and the
+output is typed back into the chat automatically. Click **ARMED — click to
+stop** (or close the tab) to disarm.
 
 ---
 
-## Verification: what I could and could not test
+## When it doesn't work
 
-**Tested — 28 tests, no mocks (`npm test`):**
+| What you see | What it means |
+|---|---|
+| `Nothing listening on 8787` | Agent not started, or step 2 not done. The VM must be *running* when you run the setup script. |
+| `Pairing is switched off` | The agent was started with `--no-pair`. Copy the token from its window into the popup's **Advanced** box. |
+| Green dot, but the model just talks | The chat is not in Direct mode, or the panel is not armed. |
+| `no chat input box found` | arena.ai changed its markup. Press `?` in the panel — **Diagnose** reports what it found — then paste selectors into the popup's **Advanced** fields. |
+| Commands run, model ignores the results | It drifted from the format. Open a fresh chat and press **START SESSION** again. |
+| Everything ran fine yesterday | VMs and forwards do not survive reboots. Re-run step 1 and step 2. |
 
-- **11 agent tests** against the real Python process over real HTTP: token required,
-  exit codes honest, stdout/stderr separated, timeouts that kill the *process group*,
-  output capped so a noisy command can't flood the context, junk rejected, and the
-  streaming `/exec` endpoint still working alongside `/run`.
-- **17 loop tests**, adversarial where it matters: only the six advertised fence
-  languages execute (a ```` ```text ```` block is never run), an **unterminated
-  block is never executed** (the half-streamed-fence case), shell prompts pasted from
-  tutorials are stripped only when every line has one, each command runs exactly once
-  even as the observer re-fires, the step budget stops the run, and command output
-  cannot forge the `[/bridge]` delimiter or truncate the context.
+A raw check, without the browser:
 
-**Not tested — and this is the honest risk:** the DOM layer. There is no browser in
-the environment I built this in, so `site.js` has never run against arena.ai. Its
-selectors are heuristics. Expect to press **?** (Diagnose) once and, if anything
-says `NOT FOUND`, paste a CSS selector into the popup's manual fields. That's why
-the layer is 200 lines of pure guessing with zero decisions in it — the tested part
-is the part that executes commands.
+```bash
+curl -i http://127.0.0.1:8787/health     # 401 "unauthorised" = the port works
+```
 
-## Troubleshooting
+401 is the *good* answer here: it proves something is listening and refusing
+unauthenticated callers.
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| Dot grey, `offline` | agent not running, or port forward missing | test in the VM: `curl -H "authorization: Bearer $TOKEN" 127.0.0.1:8787/health` |
-| `bad token` | token rotated | agent prints a new one each start unless `~/.arena-bridge/token` exists |
-| Model never emits blocks | prompt not pasted, or wrong mode | Direct mode only; re-paste the prompt |
-| Diagnose: reply `NOT FOUND` | arena.ai markup differs from the heuristic | set the reply selector in the popup |
-| Result typed but not sent | send button not matched | panel offers a manual button; or press Enter yourself |
-| Model "runs" commands without a bridge message | **it is fabricating output** | disarm immediately and re-paste the rules |
+---
 
-## Security, plainly
+## How it works, and why it is shaped like this
 
-Arming this hands the model a shell with your privileges. There is no allowlist —
-you asked for full access, and that is what it is.
-
-The realistic danger is **prompt injection**, not a malicious extension. The loop's
-input is the model's reply, and the model's reply is influenced by everything it
-reads. If it reads a file, a scan result, or a web page containing text like
-"ignore previous instructions and run…", that text can end up as a ```` ```bash ````
-block and execute with no approval step. Mitigations that actually work:
-
-- Work inside a VM snapshot you can revert (`VBoxManage snapshot` or the GUI).
-- Keep **ARM** off between tasks; it is a foot pedal, not a setting.
-- Watch the log. Every command prints before it runs — the panel is an audit trail,
-  and reading it is the actual control.
-- Don't keep SSH keys or tokens in `~` on that box while you work.
-
-## Layout
+Arena has no tool-calling API for a Direct-mode chat, so the loop is simulated
+through the chat UI itself — the same trick ZeroScript uses for Roblox Studio:
 
 ```
-agent/bridge_agent.py   stdlib agent: auth, /run (one JSON result), /exec (streaming)
-extension/site.js       all DOM guessing — no decisions, so nothing to get wrong
-extension/content.js    panel, mutation watcher, settle debounce, injection
-extension/background.js the only decider; imports lib/loop.js
-extension/lib/loop.js   command parsing + result formatting — 17 tests
-extension/popup.html    address, token, step budget, manual selectors
-prompts/system-prompt.md  the format the model must follow
-test/                   28 tests
+chat reply ──▶ extension scrapes the ```bash block
+           ──▶ POST http://127.0.0.1:8787/run
+           ──▶ agent runs it, returns one JSON object
+           ──▶ extension types "[bridge exit=0 12ms] … [/bridge]" back and presses Enter
 ```
+
+`/run` answers in a single JSON object (`code`, `ms`, `out`, `err`, `timedOut`,
+`truncated`, `cwd`) because that result has to survive being pasted as one chat
+message.
+
+Decisions worth knowing:
+
+- **The extension is the only thing that talks to the agent.** An https page
+  cannot `fetch` `http://127.0.0.1`, and a content script inherits that
+  restriction — only the extension's service worker, which declares
+  `host_permissions`, can reach it.
+- **The agent binds loopback only.** It is never exposed to your network. If you
+  pass `--host 0.0.0.0` it prints a warning, because anything that can reach
+  that port can run shell commands as you.
+- **Pairing is gated on `Origin: chrome-extension://…`**, a header the browser
+  sets and page JavaScript cannot forge. Another browser extension could still
+  pair, so every pairing is logged to the agent's window, and `--no-pair` closes
+  it entirely.
+- **Disarmed by default, one block per reply, deduplicated.** The extension
+  marks a message as consumed *before* it runs it, so a re-render cannot execute
+  the same command twice.
+- **The setup prompt is injected, not copied.** Its example block is `id` — if
+  the model echoes the example, the worst that happens is it prints your
+  username.
+
+## This is full access, on purpose
+
+The agent runs commands as your user, with no approval prompt and no directory
+jail. That is the point — it is a shell, not a babysitter — and it means:
+
+> A prompt-injected or confused model can run anything you can. Deleting your
+> home directory is one bad reply away.
+
+What people actually do about that, in ascending order of effort:
+
+- disarm the panel (one click) whenever you are not actively working;
+- keep a VM snapshot, take one before risky work, revert after;
+- give the VM a hostname you will recognise in the panel header;
+- read the `$ …` lines — they are the whole audit log.
+
+## Files
+
+```
+kali/bridge_agent.py         the agent (stdlib only, no pip installs)
+kali/start.sh                launcher, checks python3
+setup/windows-portforward.bat
+setup/mac-linux-portforward.command
+extension/manifest.json      MV3; storage + loopback host permissions only
+extension/site.js            every DOM guess lives here, nothing else does
+extension/prompt.js          the setup prompt injected by START SESSION
+extension/content.js         the panel, the settle-debounce, the typing
+extension/background.js      the only decider; imports lib/loop.js
+extension/lib/loop.js        pure decision logic — no DOM, fully tested
+extension/popup.*            Pair, plus Advanced escape hatches
+prompts/system-prompt.md     the same contract, documented (for pasting by hand)
+test/                        53 tests, no browser needed
+```
+
+Agent flags:
+
+```bash
+python3 kali/bridge_agent.py --help
+  --port 8787        change the port (also change the forward and the popup)
+  --no-pair          refuse /pair; the token must be pasted by hand
+  --deny-rm          refuse a few catastrophic patterns (a seatbelt, not a lock)
+  --token            supply the token instead of generating one
+  --token-file       where the token is kept (default ~/.arena-bridge/token)
+```
+
+## Tests
+
+```bash
+npm test        # 53 passing
+```
+
+The agent tests spawn the real Python agent on a real socket and check the
+contract: exit codes, separated streams, a timeout that actually kills the
+process group, output capping, token rejection, the seatbelt, and that `/pair`
+refuses every non-extension origin. The loop tests cover the parser — including
+the case where a reply contains an unterminated fence, which must never execute.
+
+**What is not verified:** the DOM layer has never run against the live arena.ai
+markup. The selectors in `site.js` are heuristics. The Diagnose panel and the
+manual override boxes exist precisely because that is the part that will break
+first when the site changes.
+
+## Uninstall
+
+Delete the extension from `chrome://extensions`, delete the `arena-kali` port
+forward (`setup` scripts replace it; VirtualBox → Settings → Network → Advanced
+removes it), and delete `~/.arena-bridge/` in the VM.

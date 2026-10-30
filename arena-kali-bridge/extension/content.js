@@ -26,9 +26,11 @@
     autoSubmit: true,
     selectors: { composer: "", sendButton: "", reply: "" },
   };
+  const PROMPT = window.AKB_PROMPT || "";
 
   let cfg = { ...DEFAULTS };
   let armed = false;
+  let started = false;
   let steps = 0;
   let lastSeenText = "";
   let lastInjected = "";
@@ -50,9 +52,9 @@
       </div>
       <div class="akb-body">
         <div class="akb-controls">
-          <button class="akb-arm" data-act="arm">ARM</button>
+          <button class="akb-arm" data-act="arm">START SESSION</button>
           <button class="akb-mini" data-act="reset" title="reset step counter">↺</button>
-          <span class="akb-steps">0/${DEFAULTS.maxSteps} steps</span>
+          <span class="akb-steps">0/${DEFAULTS.maxSteps}</span>
         </div>
         <div class="akb-log" aria-live="polite"></div>
         <div class="akb-manual" hidden>
@@ -71,7 +73,7 @@
       const act = e.target?.dataset?.act;
       if (!act) return;
       e.stopPropagation();
-      if (act === "arm") setArmed(!armed);
+      if (act === "arm") (started ? setArmed(!armed) : startSession());
       else if (act === "reset") resetRun();
       else if (act === "collapse") panel.classList.toggle("akb-collapsed");
       else if (act === "diag") runDiagnostics();
@@ -98,6 +100,7 @@
 
   function setArmed(v) {
     armed = v;
+    started = true;
     armBtn.textContent = v ? "ARMED — click to stop" : "ARM";
     armBtn.classList.toggle("akb-on", v);
     panel.classList.toggle("akb-armed", v);
@@ -108,6 +111,46 @@
       chrome.runtime.sendMessage({ type: "akb:reset" });
       tick(true);
     }
+  }
+
+  /** One click: teach the model the format, send it, and arm the loop. */
+  function startSession() {
+    row("meta", "── starting session ──");
+    const health0 = () => new Promise(r => chrome.runtime.sendMessage({ type: "akb:health" }, r));
+    health0().then(h => {
+      if (!h || !h.ok) {
+        row("err", h?.error === "no-token"
+          ? "not paired yet — open the extension popup and click Pair"
+          : "bridge offline — is the agent running in Kali?");
+        setDot("down", h?.error || "offline");
+        return;
+      }
+
+      const { el: composer } = Site.findComposer(cfg.selectors.composer);
+      if (!composer) {
+        row("err", "no chat input box found — press ? to diagnose");
+        return;
+      }
+      if (!PROMPT) {
+        row("err", "setup prompt missing from the extension");
+        return;
+      }
+
+      const typed = Site.setComposerText(composer, PROMPT);
+      if (!typed) {
+        row("err", "could not type into the chat box — press ? to diagnose");
+        return;
+      }
+      const { el: sendBtn } = Site.findSendButton(composer, cfg.selectors.sendButton);
+      setTimeout(() => {
+        const how = Site.submit(composer, sendBtn);
+        if (how === "none") { row("err", "could not send — press Enter yourself"); return; }
+        row("good", "session started");
+        row("meta", "the model will reply READY, then just ask it for something");
+        lastSeenText = "";
+        setTimeout(() => setArmed(true), 900);
+      }, 80);
+    });
   }
 
   function resetRun() {
@@ -250,7 +293,9 @@
     });
     obs.observe(document.body, { childList: true, subtree: true, characterData: true });
 
-    row("meta", "bridge ready — press ARM to let the model drive the VM");
+    row("good", "1. press START SESSION");
+    row("meta", "2. wait for READY");
+    row("meta", "3. ask for anything — it runs on your VM");
   }
 
   if (document.body) start();

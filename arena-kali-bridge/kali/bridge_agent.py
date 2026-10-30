@@ -42,7 +42,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 MAX_CMD_CHARS = 8000
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024          # per stream, then truncated
 MAX_CONCURRENT = 3
@@ -77,6 +77,7 @@ def log(msg):
 class Config:
     token = ""
     seatbelt = False
+    allow_pair = True
     semaphore = threading.BoundedSemaphore(MAX_CONCURRENT)
     started = time.time()
 
@@ -131,7 +132,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path.split("?")[0] != "/health":
+        route = self.path.split("?")[0]
+
+        if route == "/pair":
+            self._pair()
+            return
+
+        if route != "/health":
             self._send_json(404, {"error": "not found"})
             return
         if not self._authorised():
@@ -144,6 +151,27 @@ class Handler(BaseHTTPRequestHandler):
             "user": os.environ.get("USER") or os.environ.get("LOGNAME") or "?",
             "uptime_s": int(time.time() - Config.started),
             "seatbelt": Config.seatbelt,
+        })
+
+    # -- pairing -------------------------------------------------------
+    # Removes the copy-the-token step. The gate is the Origin header: only a
+    # browser extension can send Origin: chrome-extension://..., and a web
+    # page cannot forge it (the browser sets it). Not perfect — another
+    # extension could also pair — so --no-pair exists, and every pairing is
+    # logged loudly.
+    def _pair(self):
+        if not Config.allow_pair:
+            self._send_json(403, {"error": "pairing disabled (--no-pair)"})
+            return
+        origin = self.headers.get("Origin", "")
+        if not (origin.startswith("chrome-extension://") or origin.startswith("moz-extension://")):
+            self._send_json(403, {"error": "pairing is only available to a browser extension"})
+            return
+        log("paired with extension origin %s" % origin)
+        self._send_json(200, {
+            "token": Config.token,
+            "agent": VERSION,
+            "host": os.uname().nodename,
         })
 
     def do_POST(self):
@@ -457,12 +485,15 @@ def main():
     ap.add_argument("--port", type=int, default=8787)
     ap.add_argument("--token", default=None, help="bearer token (default: read or create)")
     ap.add_argument("--token-file", default=os.path.expanduser("~/.arena-bridge/token"))
+    ap.add_argument("--no-pair", action="store_true",
+                    help="refuse /pair (then the token must be pasted by hand)")
     ap.add_argument("--deny-rm", action="store_true", dest="seatbelt",
                     help="refuse a few catastrophic command patterns (a seatbelt, not a lock)")
     args = ap.parse_args()
 
     Config.token, how = load_token(args.token_file, args.token)
     Config.seatbelt = args.seatbelt
+    Config.allow_pair = not args.no_pair
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     srv.daemon_threads = True
@@ -478,7 +509,11 @@ def main():
     if args.seatbelt:
         print("  seatbelt    on")
     print("")
-    print("  Paste the token into the extension's popup. Ctrl-C to stop.")
+    if Config.allow_pair:
+        print("  In the extension: click Pair. No token to copy.")
+    else:
+        print("  Pairing is off — paste the token above into the extension popup.")
+    print("  Ctrl-C to stop.")
     print("")
 
     try:

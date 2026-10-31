@@ -34,6 +34,8 @@
   let steps = 0;
   let lastSeenText = "";
   let lastIdleText = "";   // so "saw a block, cannot run it" is said once
+  let lastEmptyText = "";  // and "no block at all" is said once
+  let busySince = 0;       // a worker that never answers must not freeze the loop
   let lastInjected = "";
   let busy = false;
   let settleTimer = null;
@@ -49,6 +51,7 @@
         <span class="akb-name">KALI</span>
         <span class="akb-host">…</span>
         <button class="akb-mini" data-act="diag" title="diagnose page selectors">?</button>
+        <button class="akb-mini" data-act="report" title="download a report for the developer">⤓</button>
         <button class="akb-mini" data-act="collapse" title="collapse">–</button>
       </div>
       <div class="akb-body">
@@ -56,6 +59,10 @@
           <button class="akb-arm" data-act="arm">CONNECT</button>
           <button class="akb-mini" data-act="reset" title="reset step counter">↺</button>
           <span class="akb-steps">0/${DEFAULTS.maxSteps}</span>
+        </div>
+        <div class="akb-runbox">
+          <input class="akb-input" placeholder="type a command to test the VM…" spellcheck="false" />
+          <button class="akb-mini" data-act="run">run</button>
         </div>
         <div class="akb-log" aria-live="polite"></div>
         <div class="akb-manual" hidden>
@@ -70,6 +77,13 @@
     stepsEl = panel.querySelector(".akb-steps");
     manualBar = panel.querySelector(".akb-manual");
 
+    panel.addEventListener("keydown", e => {
+      if (e.key === "Enter" && e.target?.classList?.contains("akb-input")) {
+        e.preventDefault();
+        runTyped();
+      }
+    });
+
     panel.addEventListener("click", e => {
       const act = e.target?.dataset?.act;
       if (!act) return;
@@ -78,12 +92,18 @@
       else if (act === "reset") resetRun();
       else if (act === "collapse") panel.classList.toggle("akb-collapsed");
       else if (act === "diag") runDiagnostics();
+      else if (act === "report") makeReport();
+      else if (act === "run") runTyped();
       else if (act === "manual") placeManually();
     });
     panel.addEventListener("mousedown", e => e.stopPropagation());
   }
 
+  const logLines = [];   // mirrored for the report file
+
   function row(cls, text) {
+    logLines.push(`${new Date().toISOString().slice(11, 19)} ${cls} ${text}`);
+    if (logLines.length > 400) logLines.shift();
     if (!logEl) return;
     const d = document.createElement("div");
     d.className = "akb-row akb-" + cls;
@@ -176,6 +196,67 @@
     })();
   }
 
+  /** Everything needed to diagnose this without a browser in front of me. */
+  function makeReport() {
+    const d = Site.diagnose(cfg.selectors);
+    const parts = [];
+    parts.push("arena-kali report");
+    parts.push("version : " + chrome.runtime.getManifest().version);
+    parts.push("url     : " + location.href);
+    parts.push("time    : " + new Date().toISOString());
+    parts.push("armed   : " + armed + "  started: " + started + "  steps: " + steps);
+    parts.push("");
+    parts.push("--- diagnose ---");
+    parts.push(JSON.stringify(d, null, 2));
+    parts.push("");
+    parts.push("--- every <pre> on the page ---");
+    const pres = [...document.querySelectorAll("pre")];
+    parts.push("count: " + pres.length);
+    pres.slice(-6).forEach((pre, i) => {
+      parts.push(`[${i}] class=${pre.className || "-"} data-lang=${pre.getAttribute("data-language") || "-"}`);
+      parts.push("    text: " + JSON.stringify((pre.innerText || "").slice(0, 160)));
+    });
+    parts.push("");
+    parts.push("--- reply element html (truncated) ---");
+    const el = Site.findLastReplyText(cfg.selectors.reply).el;
+    parts.push(el ? (el.outerHTML || "").slice(0, 12000) : "(not found)");
+    parts.push("");
+    parts.push("--- panel log ---");
+    parts.push(...logLines);
+
+    const blob = new Blob([parts.join("\n")], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "arena-kali-report.txt";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    row("good", "report downloaded — send me arena-kali-report.txt");
+  }
+
+  /** Type a command here to prove the VM answers, with the chat out of the way. */
+  function runTyped() {
+    const input = panel.querySelector(".akb-input");
+    const cmd = (input?.value || "").trim();
+    if (!cmd) { row("warn", "type a command first"); return; }
+    row("cmd", "$ " + cmd);
+    chrome.runtime.sendMessage({ type: "akb:exec", cmd }, (res) => {
+      if (!res) { row("err", "no answer from the extension worker"); return; }
+      if (!res.ok) {
+        row("err", "bridge: " + (res.result?.error || "failed"));
+        setDot("down", res.result?.error || "failed");
+        return;
+      }
+      const r = res.result || {};
+      const body = (r.out || "") + (r.err ? (r.out ? "\n--- stderr ---\n" : "") + r.err : "");
+      row("meta", `  ↳ exit ${r.code}${r.timedOut ? " (timed out)" : ""} · ${r.ms || 0}ms`);
+      String(body || "(no output)").split("\n").slice(0, 12).forEach((l) => row("out", "  " + l));
+      if (input) input.value = "";
+      setDot("up", "connected");
+    });
+  }
+
   function resetRun() {
     steps = 0;
     lastSeenText = "";
@@ -191,6 +272,10 @@
 
   /* ---------------- the loop ---------------- */
   function settle() {
+    if (busy && Date.now() - busySince > 20000) {
+      busy = false;                       // the worker died mid-request
+      row("warn", "worker stopped answering — loop resumed");
+    }
     if (!armed || busy) return;
     const { text, blocks } = Site.findLastReplyText(cfg.selectors.reply);
     if (!text) return;
@@ -198,6 +283,16 @@
     // never treat our own injected result as a new instruction
     if (lastInjected && text.startsWith(lastInjected.slice(0, 60))) return;
     if (text.length < 8) return;
+    if (!blocks.length && !text.includes("```")) {
+      // The exact hole that made earlier rounds unanswerable: a reply we
+      // could read, with nothing runnable in it, used to say nothing.
+      if (lastEmptyText !== text) {
+        lastEmptyText = text;
+        const d = Site.diagnose(cfg.selectors);
+        row("warn", `reply seen (${text.length} chars via ${d.reply.how}) — no code block found`);
+      }
+      return;
+    }
     tick(false, text, blocks);
   }
 
@@ -210,6 +305,7 @@
     if (!force && body === lastSeenText) return;
     lastSeenText = body;
     busy = true;
+    busySince = Date.now();
 
     chrome.runtime.sendMessage({ type: "akb:tick", text: body, blocks: codeBlocks }, res => {
       busy = false;
@@ -295,8 +391,14 @@
       `send button: ${d.sendButton.found ? d.sendButton.how : "not found (will press Enter)"}`);
     row(d.reply.found ? "good" : "err",
       `last reply: ${d.reply.found ? `${d.reply.chars} chars via ${d.reply.how}` : "NOT FOUND"}`);
-    if (d.reply.hasFence) row("good", "reply contains a fenced block ✓");
-    else if (d.reply.found) row("warn", "reply has no fenced block yet");
+    if (d.reply.blocks) {
+      row("good", `code blocks in reply: ${d.reply.blocks} [${(d.reply.langs || []).join(", ")}]`);
+    } else if (d.reply.hasFence) {
+      row("good", "reply contains a fenced block ✓ (no rendered block found)");
+    } else if (d.reply.found) {
+      row("warn", "reply has no code block yet");
+    }
+    row("meta", `<pre> elements on the page: ${d.reply.presOnPage ?? "?"}`);
     row("meta", `visible editables: ${d.visibleEditables}`);
     if (!d.reply.found || !d.composer.found) {
       row("warn", "use the popup to set CSS selectors by hand");
@@ -329,6 +431,11 @@
       settleTimer = setTimeout(settle, SETTLE_MS);
     });
     obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+
+    // Belt and braces: if arena stops mutating (or the observer misses a
+    // subtree), polling still notices a new reply. Cheap: one query every
+    // 1.5s and settle() early-exits on unchanged text.
+    setInterval(() => { if (armed && !busy) settle(); }, 1500);
 
     row("good", "press CONNECT — that is the whole setup");
     row("meta", "then ask for anything: it runs on your VM");

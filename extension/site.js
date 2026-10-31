@@ -117,7 +117,20 @@
   function codeBlocksIn(root) {
     if (!root || !root.querySelectorAll) return [];
     const out = [];
-    for (const pre of root.querySelectorAll("pre")) {
+
+    // <pre> is the normal case. Some renderers skip it, so fall back to a
+    // <code> with newlines, then to a div whose class says "code".
+    let blocks = [...root.querySelectorAll("pre")];
+    if (!blocks.length) {
+      blocks = [...root.querySelectorAll("code")].filter((c) => (c.innerText || "").includes("\n"));
+    }
+    if (!blocks.length) {
+      blocks = [...root.querySelectorAll('[class*="code" i], [class*="highlight" i]')]
+        .filter((n) => !n.querySelector("pre, code") && (n.innerText || "").includes("\n"))
+        .slice(-3);
+    }
+
+    for (const pre of blocks) {
       const codeEl = pre.querySelector("code") || pre;
       let code = codeEl.innerText || codeEl.textContent || "";
       const lang = langOf(pre, codeEl, code);
@@ -232,6 +245,7 @@
         chars: r.text.length,
         hasFence: r.text.includes("```"),
         blocks: (r.blocks || []).length,
+        presOnPage: document.querySelectorAll("pre").length,
         langs: [...new Set((r.blocks || []).map((b) => b.lang || "untagged"))].slice(0, 4),
         preview: r.text.slice(0, 120),
       },

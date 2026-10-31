@@ -89,3 +89,14 @@
   background: rgba(248, 81, 73, 0.12);
 }
 #akb-panel .akb-manual .akb-mini { width: 100%; padding: 6px; }
+
+/* A one-line command box: the shortest test of "does the VM answer at all",
+   with the chat, the model and the scraping taken out of the picture. */
+#akb-panel .akb-runbox { display: flex; gap: 6px; padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,.06); }
+#akb-panel .akb-input {
+  flex: 1; min-width: 0; padding: 5px 8px; border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.14); background: rgba(0,0,0,.35);
+  color: #e6edf3; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#akb-panel .akb-input:focus { outline: none; border-color: #58a6ff; }
+#akb-panel .akb-row.akb-out { color: #8b949e; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }

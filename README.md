@@ -110,6 +110,70 @@ session is as close as the platform allows.
 
 ---
 
+## Use it as an MCP server (any MCP client, not just the browser)
+
+The agent is a **real MCP server** — Model Context Protocol 2025-06-18,
+JSON-RPC 2.0, no `pip install`, no venv. Same process as the bridge, same
+token, so there is nothing extra to start:
+
+```
+POST http://127.0.0.1:8787/mcp     Streamable HTTP
+python3 /opt/arena-kali/kali/bridge_agent.py --mcp-stdio    stdio
+```
+
+Tools: `run_command`, `read_file`, `write_file`, `list_directory`,
+`system_info`.
+
+**Proof it is really MCP** — two commands. Get the token once
+(in the VM: `sudo cat /root/.arena-bridge/token`), then from **PowerShell on
+Windows** (the forward already carries this):
+
+```powershell
+$T = "paste-the-token-here"
+curl.exe -s -X POST http://127.0.0.1:8787/mcp -H "Authorization: Bearer $T" -H "content-type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"run_command\",\"arguments\":{\"command\":\"hostname; id -un\"}}}"
+```
+
+Expected — anything else is a setup problem, not a protocol problem:
+
+```json
+{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text",
+ "text":"kali\nroot\n[exit 0 · 6 ms]"}],"isError":false}}
+```
+
+Protocol conformance is pinned by tests, not by hope: `initialize`,
+`notifications/initialized` → 202 with an empty body, `tools/list`,
+`tools/call` (success and failure), unknown tool, unknown method (`-32601`),
+batches, a missing token (`401`), and the stdio transport end to end.
+
+**Claude Desktop / Cursor / anything that takes a URL** — add to the client's
+MCP config (Claude Desktop on Windows:
+`%APPDATA%\Claude\claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "kali": {
+      "type": "http",
+      "url": "http://127.0.0.1:8787/mcp",
+      "headers": { "Authorization": "Bearer PASTE-THE-TOKEN-HERE" }
+    }
+  }
+}
+```
+
+**Anything that spawns a process** (Claude Code, Cline, …) — run it inside the
+VM instead, where no token crosses a port:
+
+```json
+{ "mcpServers": { "kali": {
+    "command": "python3",
+    "args": ["/opt/arena-kali/kali/bridge_agent.py", "--mcp-stdio"] } } }
+```
+
+The tool surface follows **MCP-Kali-Server** (`TriV3`, MIT) — execute, read,
+write, inspect. The protocol implementation here is ours and stdlib-only, which
+is the difference between "clone and run" and "install Python packaging first".
+
 ## When it doesn't work
 
 | What you see | What it means |
@@ -208,6 +272,7 @@ What people actually do about that, in ascending order of effort:
 kali/install.sh              one-time installer: systemd service, on boot
 kali/start.sh                run it in the foreground instead
 kali/bridge_agent.py         the agent (stdlib only, no pip installs)
+kali/kali_mcp.py             the MCP server: tools, schemas, stdio transport
 kali/demo.html               fake chat UI, served at /demo, proves the loop
 setup/windows-portforward.bat
 setup/mac-linux-portforward.command
@@ -218,7 +283,7 @@ extension/content.js         the panel, the settle-debounce, the typing
 extension/background.js      the only decider; imports lib/loop.js
 extension/lib/loop.js        pure decision logic — no DOM, fully tested
 extension/popup.*            Test connection, plus Advanced escape hatches
-test/                        120 tests: loop, agent over HTTP, setup, DOM
+test/                        130 tests: loop, agent over HTTP, MCP, setup, DOM
 test/dom.test.mjs            runs site.js in jsdom — block reading, composer
 
 ```
@@ -248,7 +313,7 @@ repository.
 
 ```bash
 npm install     # once: jsdom, for the DOM tests (they skip without it)
-npm test        # 120 passing
+npm test        # 130 passing
 ```
 
 The agent tests spawn the real Python agent on a real socket and check the
@@ -259,10 +324,13 @@ fake `ip` and a fake `python3`, so they can prove the VirtualBox NAT binding
 without a VM. The loop tests cover the parser — including the case where a reply
 contains an unterminated fence, which must never execute.
 
-**What is not verified:** the DOM layer has never run against the live arena.ai
-markup. The selectors in `site.js` are heuristics. The Diagnose panel and the
-manual override boxes exist precisely because that is the part that will break
-first when the site changes.
+**What is not verified:** the arena.ai selectors come from another project's
+live validation of arena.ai — accurate as of their last check, never exercised
+against a live session from this repo. They are concrete, not guesses, but a
+site redesign breaks them the way it breaks every scraper. `/demo` isolates
+that: if commands run there and not on arena.ai, the problem is the page, not
+the bridge. The Diagnose panel and the manual override boxes stay for exactly
+that day.
 
 ## Uninstall
 

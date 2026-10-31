@@ -104,6 +104,13 @@ test("extension wiring", async (t) => {
     assert.ok(html.indexOf('id="pair"') < html.indexOf('id="token"'));
   });
 
+  await t.test("the build identifies itself, so 'is this the new one?' is answerable", () => {
+    const manifest = JSON.parse(read("extension/manifest.json"));
+    assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+    assert.match(read("extension/popup.js"), /getManifest\(\)\.version/);
+    assert.match(read("extension/content.js"), /extension v.*getManifest\(\)\.version/);
+  });
+
   await t.test("the panel connects on its own: pair, teach, arm", () => {
     const js = read("extension/content.js");
     assert.match(js, /function startSession/);

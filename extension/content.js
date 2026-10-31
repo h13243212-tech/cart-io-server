@@ -288,6 +288,7 @@
   function runDiagnostics() {
     const d = Site.diagnose(cfg.selectors);
     row("meta", "── diagnostics ──");
+    row("meta", "extension v" + chrome.runtime.getManifest().version);
     row(d.composer.found ? "good" : "err",
       `input box: ${d.composer.found ? d.composer.tag + " via " + d.composer.how : "NOT FOUND"}`);
     row(d.sendButton.found ? "good" : "warn",

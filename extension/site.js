@@ -33,11 +33,72 @@
 
   /** The chat input box. Override wins; otherwise biggest editable thing
    *  nearest the bottom of the viewport. */
+  /* ==================================================================
+     arena.ai — the one site we have real DOM facts for.
+
+     These selectors and behaviours were validated live against
+     arena.ai/text/direct by the ZeroScript project (GPL-3.0). We take the
+     FACTS — which element is what — and implement them ourselves:
+
+       <ol class="... flex-col-reverse">          the message list
+         direct child <div class="mx-auto ...">   one turn
+           <div class="prose">                    the markdown body
+         a user turn carries `justify-end`; an assistant turn does not
+         fenced code = <div class="not-prose"><pre>...</pre></div>
+       composer    = the only <textarea> inside a <form>
+       send button = aria-label "Send message"
+
+     THE CRITICAL ONE: flex-col-reverse means the DOM order is NEWEST FIRST.
+     Reading "the last matching element on the page" therefore returns the
+     OLDEST message — which never changes, so the loop looked asleep. That
+     single fact is why every earlier attempt failed on this site.
+     ================================================================== */
+  const ARENA = {
+    host: /(^|\.)arena\.ai$/i,
+    list: "ol.flex-col-reverse",
+    body: ".prose",
+    userClass: "justify-end",
+    sendAria: /send message|envoyer/i,
+  };
+
+  const isArena = () => ARENA.host.test(location.hostname);
+
+  function arenaList() {
+    return document.querySelector(ARENA.list)
+      || [...document.querySelectorAll("ol")].find((o) => o.querySelector(ARENA.body))
+      || null;
+  }
+
+  /** Turns in DOM order — which on arena means newest first. */
+  function arenaTurns() {
+    const ol = arenaList();
+    if (!ol) return [];
+    return [...ol.children].filter((c) =>
+      c.tagName === "DIV"
+      && (c.classList.contains("mx-auto") || c.querySelector('[role="region"][aria-roledescription="carousel"]'))
+      && c.querySelector(ARENA.body));
+  }
+
+  /** The most recent assistant turn (first in DOM order, because of reverse). */
+  function arenaNewestReply() {
+    const turns = arenaTurns();
+    for (const t of turns) {
+      if (!t.classList.contains(ARENA.userClass)) return t;
+    }
+    return null;
+  }
+
   function findComposer(override) {
     if (override) {
       const el = document.querySelector(override);
       if (el) return { el, how: "override" };
     }
+    // arena: the composer is the only <textarea> inside a <form>
+    // (the others are recaptcha / aria-hidden)
+    const formArea = [...document.querySelectorAll("form textarea")]
+      .filter((e) => visible(e) && e.getAttribute("aria-hidden") !== "true");
+    if (formArea.length) return { el: formArea[formArea.length - 1], how: "form textarea" };
+
     const pool = [
       ...document.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]'),
     ].filter(visible);
@@ -55,11 +116,19 @@
   }
 
   /** The button that sends. */
+  const b_disabled = (b) => !!b && (b.disabled || b.getAttribute("aria-disabled") === "true");
+
   function findSendButton(composer, override) {
     if (override) {
       const el = document.querySelector(override);
       if (el) return { el, how: "override" };
     }
+    // arena (and most React chat UIs): one button named "Send message"
+    const named = [...document.querySelectorAll("button[aria-label]")]
+      .filter(visible)
+      .find((b) => ARENA.sendAria.test(b.getAttribute("aria-label") || ""));
+    if (named && !b_disabled(named)) return { el: named, how: "aria-label send" };
+
     const scope = composer?.closest("form") || composer?.parentElement?.parentElement || document;
     const cands = [...scope.querySelectorAll("button, [role='button']")].filter(visible);
     const score = el => {
@@ -157,6 +226,20 @@
    * durable than guessing which div holds "the assistant's reply".
    */
   function lastCodeBlock(exclude) {
+    // arena: only the newest reply's blocks count — never the conversation's
+    // history, and never the oldest turn by accident.
+    if (isArena()) {
+      const turn = arenaNewestReply();
+      const scope = turn && (turn.querySelector(ARENA.body) || turn);
+      if (scope) {
+        const found = codeBlocksIn(scope);
+        if (found.length) {
+          const b = found[found.length - 1];
+          return { el: scope, lang: b.lang, code: (b.code || "").trim() };
+        }
+        return null;
+      }
+    }
     const inPanel = (n) => (exclude && (exclude === n || exclude.contains(n)))
       || (n.closest && n.closest("#akb-panel"));
     const all = [...document.querySelectorAll("pre, code")].filter((n) => {
@@ -179,6 +262,16 @@
   }
 
   function findLastReplyText(override) {
+    // arena: the newest assistant turn, NOT the last matching node in the
+    // document (the list is flex-col-reverse, so the last node is the oldest).
+    if (!override && isArena()) {
+      const turn = arenaNewestReply();
+      if (turn) {
+        const slide = turn.querySelector('[aria-roledescription="slide"]');
+        const body = (slide && slide.querySelector(ARENA.body)) || turn.querySelector(ARENA.body) || turn;
+        return { el: body, text: textOf(body).trim(), blocks: codeBlocksIn(body), how: "arena-turn" };
+      }
+    }
     if (override) {
       const nodes = [...document.querySelectorAll(override)];
       if (nodes.length) {
@@ -209,6 +302,20 @@
   function setComposerText(el, text) {
     if (!el) return false;
     el.focus();
+
+    // arena's composer is a React-controlled <textarea>: assigning .value
+    // directly leaves React's state stale and the send button disabled. Set it
+    // through the native prototype setter, then fire input.
+    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
+      try {
+        const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        if (setter) setter.call(el, text); else el.value = text;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+        return (el.value || "").includes(text.slice(0, 40));
+      } catch { /* fall through to the generic path */ }
+    }
 
     // clear whatever the model or the user left there
     try {

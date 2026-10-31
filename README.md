@@ -165,6 +165,11 @@ Decisions worth knowing:
 - **The agent binds loopback unless it sees VirtualBox NAT.** With NAT the port
   is reachable only from inside the VM and through the host-side forward, which
   the setup scripts bind to `127.0.0.1`.
+- **arena.ai's message list runs backwards.** `<ol class="flex-col-reverse">`
+  means the DOM order is *newest first*, so "the last matching element on the
+  page" is the **oldest** message — a node that never changes. That single fact
+  is why early versions looked asleep while the model was emitting commands.
+  The provider layer now reads the newest assistant turn explicitly.
 - **The loop watches for code blocks, not for "the assistant's reply".**
   Message containers differ per site and get re-rendered; a command always
   ends up in `<pre>`/`<code>`. Reading the last block on the page — excluding
@@ -213,7 +218,7 @@ extension/content.js         the panel, the settle-debounce, the typing
 extension/background.js      the only decider; imports lib/loop.js
 extension/lib/loop.js        pure decision logic — no DOM, fully tested
 extension/popup.*            Test connection, plus Advanced escape hatches
-test/                        110 tests: loop, agent over HTTP, setup, DOM
+test/                        120 tests: loop, agent over HTTP, setup, DOM
 test/dom.test.mjs            runs site.js in jsdom — block reading, composer
 
 ```
@@ -229,11 +234,21 @@ Agent flags (for `kali/start.sh`, or add them to the unit's `ExecStart`):
 --token-file       where the token is kept (default ~/.arena-bridge/token)
 ```
 
+### Where the arena.ai knowledge comes from
+
+The selectors and behaviours above (the reverse-ordered `<ol>`, `.prose`
+bodies, `justify-end` for user turns, `div.not-prose` code wrappers, the
+`<form>` textarea composer, the `aria-label="Send message"` button) were
+validated live against arena.ai by the **ZeroScript Free** project
+(GPL-3.0, `sebattfg/ZeroScript-Free`). We took the *facts* — which element is
+what — and wrote our own implementation; no GPL code is copied into this
+repository.
+
 ## Tests
 
 ```bash
 npm install     # once: jsdom, for the DOM tests (they skip without it)
-npm test        # 110 passing
+npm test        # 120 passing
 ```
 
 The agent tests spawn the real Python agent on a real socket and check the

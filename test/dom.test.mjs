@@ -143,3 +143,112 @@ test("diagnose tells the truth about the page", { skip: need }, async (t) => {
     assert.equal(d.reply.blocks, 0);
   });
 });
+
+/* ==================================================================
+   arena.ai — built from the DOM facts the ZeroScript project validated
+   live (GPL-3.0; we take the facts, not their code).
+
+   The one that matters: the message list is `ol.flex-col-reverse`, so the
+   DOM order is NEWEST FIRST. Every earlier version of this extension took
+   "the last matching element on the page" — which on arena is the OLDEST
+   message, a node that never changes. The loop therefore looked asleep
+   while the model was happily emitting commands.
+   ================================================================== */
+const ARENA_PAGE = `<!DOCTYPE html><html><body>
+  <form>
+    <textarea placeholder="Ask anything…"></textarea>
+    <button aria-label="Send message">↑</button>
+    <button aria-label="Stop generation" style="display:none">■</button>
+  </form>
+  <ol class="flex flex-col-reverse gap-4">
+    <!-- newest assistant turn is FIRST in the DOM -->
+    <div class="mx-auto max-w-[800px]"><div class="flex flex-col gap-3">
+      <div class="prose"><p>Running it now:</p>
+        <div class="not-prose"><pre><code class="language-bash">curl -s ifconfig.me</code></pre></div>
+      </div>
+    </div></div>
+    <div class="mx-auto max-w-[800px] justify-end"><div class="prose">what is my public ip</div></div>
+    <!-- oldest assistant turn is LAST in the DOM -->
+    <div class="mx-auto max-w-[800px]"><div class="prose"><p>READY</p></div></div>
+    <div class="h-0"></div>
+  </ol>
+</body></html>`;
+
+function arena(markup = ARENA_PAGE) {
+  const dom = new JSDOM(markup, { runScripts: "dangerously", url: "https://arena.ai/c/abc-123" });
+  const w = dom.window;
+  w.Element.prototype.getBoundingClientRect = () => ({
+    x: 0, y: 600, top: 600, left: 0, width: 600, height: 44, right: 600, bottom: 644, toJSON() {},
+  });
+  w.eval(SITE_JS);
+  return w;
+}
+
+test("arena.ai: reads the newest reply, not the oldest", { skip: need }, async (t) => {
+  await t.test("the DOM order is newest-first and we respect it", () => {
+    const r = arena().AKBSite.findLastReplyText();
+    assert.equal(r.how, "arena-turn");
+    assert.match(r.text, /Running it now/);
+    assert.doesNotMatch(r.text, /READY/, "picked the oldest turn — the flex-col-reverse trap");
+  });
+
+  await t.test("the command comes from that reply", () => {
+    const b = arena().AKBSite.lastCodeBlock(null);
+    assert.equal(b.lang, "bash");
+    assert.equal(b.code, "curl -s ifconfig.me");
+  });
+
+  await t.test("a brand new reply wins over a long history", () => {
+    const html = ARENA_PAGE.replace("<ol", `
+      <ol`)
+      .replace("<!-- newest assistant turn is FIRST in the DOM -->",
+        `<div class="mx-auto max-w-[800px]"><div class="prose"><p>ok</p>
+           <div class="not-prose"><pre><code class="language-bash">hostname; id -un</code></pre></div>
+         </div></div>`);
+    const b = arena(html).AKBSite.lastCodeBlock(null);
+    assert.equal(b.code, "hostname; id -un");
+  });
+
+  await t.test("nothing to run returns null, not the previous command", () => {
+    const html = ARENA_PAGE.replace(
+      /<div class="not-prose">[\s\S]*?<\/div>/,
+      "");
+    const b = arena(html).AKBSite.lastCodeBlock(null);
+    assert.equal(b, null);
+  });
+});
+
+test("arena.ai: composer, send button, and typing", { skip: need }, async (t) => {
+  await t.test("the composer is the form's textarea", () => {
+    const c = arena().AKBSite.findComposer("");
+    assert.ok(c.el);
+    assert.equal(c.el.tagName, "TEXTAREA");
+    assert.equal(c.how, "form textarea");
+  });
+
+  await t.test("the send button is found by its aria-label, and only when enabled", () => {
+    const w = arena();
+    const c = w.AKBSite.findComposer("");
+    const s = w.AKBSite.findSendButton(c.el);
+    assert.equal(s.how, "aria-label send");
+    assert.equal(s.el.getAttribute("aria-label"), "Send message");
+  });
+
+  await t.test("typing drives a React-controlled textarea", () => {
+    const w = arena();
+    const c = w.AKBSite.findComposer("");
+    let inputFired = false;
+    c.el.addEventListener("input", () => { inputFired = true; });
+    assert.equal(w.AKBSite.setComposerText(c.el, "hello VM"), true);
+    assert.equal(c.el.value, "hello VM");
+    assert.equal(inputFired, true, "React only notices an input event");
+  });
+
+  await t.test("the whole conversation is NOT read as one turn", () => {
+    const w = arena();
+    const turns = w.document.querySelectorAll("ol.flex-col-reverse > div.mx-auto");
+    assert.equal(turns.length, 3);
+    assert.equal(w.AKBSite.findLastReplyText().text.includes("what is my public ip"), false,
+      "the user's own message must never be read as the reply");
+  });
+});

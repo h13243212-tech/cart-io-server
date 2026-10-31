@@ -14,6 +14,25 @@ arena:   Three services. 22 is ssh, 8080 is your app…
 
 ---
 
+## Prove it works before trusting it (2 minutes)
+
+The extension's one blind spot is reading a command out of a web page. So the
+agent serves a fake chat UI — same shape as a real one, no account, no model,
+no internet:
+
+**<http://127.0.0.1:8787/demo>**
+
+1. Press **CONNECT** in the panel on that page.
+2. Type `run hostname` and send.
+3. The page replies with a `Bash` block; the panel should print
+   `$ hostname; id -un`, then type the result back into the chat by itself.
+
+If that works, the bridge works — port, token, execution, and the loop. Any
+remaining problem is specific to arena.ai's markup, and the panel log will
+name it. If it does *not* work, the failure is in the bridge, not the site.
+
+---
+
 ## Install once
 
 ### 1. In the VM: one command
@@ -100,6 +119,8 @@ session is as close as the platform allows.
 | Adapter is **Bridged**, not NAT | The extension only accepts loopback agent addresses, so it will not reach the VM's LAN IP. Use the `ssh -L` tunnel below. |
 | `the VM rejected the token` | The token file changed (reinstall). Clear the token in the popup's **Advanced** box and press CONNECT again. |
 | Green dot, model just talks | The chat is not in Direct mode, or the panel is disarmed. |
+| Works on `/demo` but not on arena.ai | The bridge is fine; arena's markup differs. Press `?` (blocks found / `<pre>` count) or `⤓` (downloads a report) and send it. |
+| `captured a untagged block` then nothing | The block was found but its language is unknown and there was more than one. Ask for a `bash` block. |
 | `saw 1 code block(s) [python] — not executable` | The reply contained a block, but not in a shell language. Ask for a `bash` block. |
 | `no chat input box found` | arena.ai changed its markup. Press `?` in the panel — **Diagnose** reports what it found — then paste selectors into the popup's **Advanced** fields. |
 | Commands run, model ignores the results | It drifted from the format. Open a fresh chat and press CONNECT again. |
@@ -144,6 +165,10 @@ Decisions worth knowing:
 - **The agent binds loopback unless it sees VirtualBox NAT.** With NAT the port
   is reachable only from inside the VM and through the host-side forward, which
   the setup scripts bind to `127.0.0.1`.
+- **The loop watches for code blocks, not for "the assistant's reply".**
+  Message containers differ per site and get re-rendered; a command always
+  ends up in `<pre>`/`<code>`. Reading the last block on the page — excluding
+  the panel's own — is far more durable than guessing which div is the reply.
 - **Commands are read from the page's code blocks, not from backticks.**
   Rendered markdown keeps no fence characters — arena.ai turns a ```bash fence
   into a styled block with a "Bash" chip — so the extension collects `<pre>`
@@ -178,6 +203,7 @@ What people actually do about that, in ascending order of effort:
 kali/install.sh              one-time installer: systemd service, on boot
 kali/start.sh                run it in the foreground instead
 kali/bridge_agent.py         the agent (stdlib only, no pip installs)
+kali/demo.html               fake chat UI, served at /demo, proves the loop
 setup/windows-portforward.bat
 setup/mac-linux-portforward.command
 extension/manifest.json      MV3; storage + loopback host permissions only
@@ -186,8 +212,10 @@ extension/prompt.js          the setup prompt injected by CONNECT
 extension/content.js         the panel, the settle-debounce, the typing
 extension/background.js      the only decider; imports lib/loop.js
 extension/lib/loop.js        pure decision logic — no DOM, fully tested
-extension/popup.*            Connect, plus Advanced escape hatches
-test/                        88 tests, no browser needed
+extension/popup.*            Test connection, plus Advanced escape hatches
+test/                        110 tests: loop, agent over HTTP, setup, DOM
+test/dom.test.mjs            runs site.js in jsdom — block reading, composer
+
 ```
 
 Agent flags (for `kali/start.sh`, or add them to the unit's `ExecStart`):
@@ -204,7 +232,8 @@ Agent flags (for `kali/start.sh`, or add them to the unit's `ExecStart`):
 ## Tests
 
 ```bash
-npm test        # 88 passing
+npm install     # once: jsdom, for the DOM tests (they skip without it)
+npm test        # 110 passing
 ```
 
 The agent tests spawn the real Python agent on a real socket and check the

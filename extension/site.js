@@ -22,6 +22,10 @@
     return st.visibility !== "hidden" && st.display !== "none" && st.opacity !== "0";
   };
 
+  // innerText respects layout (and is what a human sees); textContent always
+  // exists. jsdom, some shadow roots and some SVG nodes only have the latter.
+  const textOf = el => (el?.innerText ?? el?.textContent ?? "");
+
   const area = el => {
     const r = el.getBoundingClientRect();
     return r.width * r.height;
@@ -144,15 +148,42 @@
     return out;
   }
 
+  /**
+   * The last rendered code block on the page, ignoring our own panel.
+   *
+   * This is the detection that does not care what the chat UI looks like:
+   * message containers differ per site, get renamed, and are re-rendered —
+   * but a command always ends up in <pre>/<code>. Reading that is far more
+   * durable than guessing which div holds "the assistant's reply".
+   */
+  function lastCodeBlock(exclude) {
+    const inPanel = (n) => (exclude && (exclude === n || exclude.contains(n)))
+      || (n.closest && n.closest("#akb-panel"));
+    const all = [...document.querySelectorAll("pre, code")].filter((n) => {
+      if (inPanel(n)) return false;
+      return (n.innerText || n.textContent || "").trim().length > 0;
+    });
+    const pres = all.filter((n) => n.tagName === "PRE");
+    const pool = pres.length ? pres : all;      // a <code> inside a <pre> would duplicate
+    const el = pool[pool.length - 1];
+    if (!el) return null;
+
+    const codeEl = el.querySelector?.("code") || el;
+    let code = codeEl.innerText || codeEl.textContent || "";
+    const lang = langOf(el, codeEl, code);
+    const first = code.split("\n")[0].trim().toLowerCase();
+    if (code.split("\n").length > 1 && LANG_LABELS.has(first)) {
+      code = code.split("\n").slice(1).join("\n");   // a chip rendered inside the block
+    }
+    return { el, lang, code: code.trim() };
+  }
+
   function findLastReplyText(override) {
     if (override) {
       const nodes = [...document.querySelectorAll(override)];
       if (nodes.length) {
         const el = nodes[nodes.length - 1];
-        return {
-          el, text: el.innerText || el.textContent || "",
-          blocks: codeBlocksIn(el), how: "override",
-        };
+        return { el, text: textOf(el), blocks: codeBlocksIn(el), how: "override" };
       }
     }
     const ladders = [
@@ -167,7 +198,7 @@
       if (!nodes.length) continue;
       // the reply is the last one on the page with real content
       for (let i = nodes.length - 1; i >= 0; i--) {
-        const text = (nodes[i].innerText || "").trim();
+        const text = textOf(nodes[i]).trim();
         if (text.length > 0) return { el: nodes[i], text, blocks: codeBlocksIn(nodes[i]), how };
       }
     }
@@ -254,5 +285,5 @@
     };
   }
 
-  window.AKBSite = { findComposer, findSendButton, findLastReplyText, setComposerText, submit, diagnose, visible };
+  window.AKBSite = { findComposer, findSendButton, findLastReplyText, lastCodeBlock, setComposerText, submit, diagnose, visible };
 })();

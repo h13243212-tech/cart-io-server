@@ -138,6 +138,12 @@ class Handler(BaseHTTPRequestHandler):
             self._pair()
             return
 
+        # A local stand-in for a chat UI, so the whole loop can be proven
+        # without arena.ai, an account, or a model. Static file, no secrets.
+        if route in ("/demo", "/demo/"):
+            self._serve_demo()
+            return
+
         if route != "/health":
             self._send_json(404, {"error": "not found"})
             return
@@ -186,6 +192,21 @@ class Handler(BaseHTTPRequestHandler):
             "agent": VERSION,
             "host": os.uname().nodename,
         })
+
+    def _serve_demo(self):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo.html")
+        try:
+            with open(path, "rb") as fh:
+                body = fh.read()
+        except OSError:
+            self._send_json(404, {"error": "demo.html is missing next to the agent"})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_POST(self):
         route = self.path.split("?")[0]

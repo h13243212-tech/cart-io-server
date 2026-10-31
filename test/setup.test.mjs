@@ -112,9 +112,10 @@ test("the instructions match the script", async (t) => {
 
   await t.test("the repo carries no leftovers", () => {
     assert.equal(fs.existsSync(path.join(ROOT, "prompts")), false);
-    const files = fs.readdirSync(ROOT).filter((f) => f !== ".git").sort();
+    const ignore = new Set([".git", "node_modules"]);
+    const files = fs.readdirSync(ROOT).filter((f) => !ignore.has(f)).sort();
     assert.deepEqual(files, [".gitignore", "README.md", "extension", "kali",
-      "package.json", "setup", "test"]);
+      "package-lock.json", "package.json", "setup", "test"]);
   });
 });
 

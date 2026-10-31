@@ -239,3 +239,133 @@ test("agent serves the local demo page", async (t) => {
     assert.equal((await fetch(a.base + "/health")).status, 401);
   });
 });
+
+/* ==================================================================
+   MCP — the same agent speaks the Model Context Protocol on /mcp
+   (Streamable HTTP) and on stdio. These are the four messages every MCP
+   client sends before it will use a server, plus the failure paths.
+   ================================================================== */
+const mcp = async (base, msg, token = TOKEN) => {
+  const res = await fetch(base + "/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(token ? { authorization: "Bearer " + token } : {}) },
+    body: typeof msg === "string" ? msg : JSON.stringify(msg),
+  });
+  const text = await res.text();
+  return { status: res.status, json: text ? JSON.parse(text) : null, headers: res.headers };
+};
+
+const INIT = {
+  jsonrpc: "2.0", id: 1, method: "initialize",
+  params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+};
+
+test("agent /mcp — the handshake every client does", async (t) => {
+  const { base, cleanup } = await startAgent();
+  try {
+    await t.test("initialize names the server and negotiates a version", async () => {
+      const { status, json, headers } = await mcp(base, INIT);
+      assert.equal(status, 200);
+      assert.equal(json.jsonrpc, "2.0");
+      assert.equal(json.id, 1);
+      assert.equal(json.result.serverInfo.name, "arena-kali");
+      assert.ok(["2025-06-18", "2025-03-26", "2024-11-05"].includes(json.result.protocolVersion));
+      assert.ok(json.result.capabilities.tools);
+      assert.match(headers.get("mcp-session-id") || "", /^arena-kali-/);
+    });
+
+    await t.test("notifications/initialized gets 202 and no body", async () => {
+      const r = await mcp(base, { jsonrpc: "2.0", method: "notifications/initialized" });
+      assert.equal(r.status, 202);
+      assert.equal(r.json, null);
+    });
+
+    await t.test("tools/list advertises run_command with a real schema", async () => {
+      const { json } = await mcp(base, { jsonrpc: "2.0", id: 2, method: "tools/list" });
+      const tools = json.result.tools;
+      const names = tools.map((x) => x.name);
+      assert.ok(names.includes("run_command"));
+      assert.ok(names.includes("read_file"));
+      assert.ok(names.includes("write_file"));
+      assert.ok(names.includes("list_directory"));
+      assert.ok(names.includes("system_info"));
+      for (const tool of tools) {
+        assert.equal(typeof tool.description, "string");
+        assert.equal(tool.inputSchema.type, "object");
+      }
+      const rc = tools.find((x) => x.name === "run_command");
+      assert.deepEqual(rc.inputSchema.required, ["command"]);
+    });
+
+    await t.test("tools/call actually runs the command on this machine", async () => {
+      const { json } = await mcp(base, {
+        jsonrpc: "2.0", id: 3, method: "tools/call",
+        params: { name: "run_command", arguments: { command: "echo from-mcp; id -un" } },
+      });
+      assert.equal(json.result.isError, false);
+      const text = json.result.content[0].text;
+      assert.match(text, /from-mcp/);
+      assert.match(text, /\[exit 0/);
+    });
+
+    await t.test("a failing command reports isError, not a crashed server", async () => {
+      const { json } = await mcp(base, {
+        jsonrpc: "2.0", id: 4, method: "tools/call",
+        params: { name: "run_command", arguments: { command: "exit 7" } },
+      });
+      assert.equal(json.result.isError, true);
+      assert.match(json.result.content[0].text, /exit 7/);
+      // and the server is still alive
+      const ping = await mcp(base, { jsonrpc: "2.0", id: 5, method: "ping" });
+      assert.equal(ping.status, 200);
+    });
+
+    await t.test("an unknown tool is an error result, an unknown method is -32601", async () => {
+      const tool = await mcp(base, {
+        jsonrpc: "2.0", id: 6, method: "tools/call",
+        params: { name: "rm_rf_everything", arguments: {} },
+      });
+      assert.equal(tool.json.result.isError, true);
+      const method = await mcp(base, { jsonrpc: "2.0", id: 7, method: "no/such" });
+      assert.equal(method.json.error.code, -32601);
+    });
+
+    await t.test("no token means no MCP", async () => {
+      const r = await mcp(base, INIT, null);
+      assert.equal(r.status, 401);
+      assert.equal(r.json.error, "unauthorised");
+    });
+
+    await t.test("a batch is answered point by point", async () => {
+      const r = await mcp(base, [
+        { jsonrpc: "2.0", id: 10, method: "ping" },
+        { jsonrpc: "2.0", method: "notifications/initialized" },
+        { jsonrpc: "2.0", id: 11, method: "tools/list" },
+      ]);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.length, 2);
+      assert.deepEqual(r.json.map((x) => x.id), [10, 11]);
+    });
+  } finally { cleanup(); }
+});
+
+test("agent --mcp-stdio — what Claude Desktop actually spawns", async () => {
+  const proc = spawn("python3", [AGENT, "--mcp-stdio"], { stdio: ["pipe", "pipe", "pipe"] });
+  let out = "";
+  proc.stdout.on("data", (d) => { out += d; });
+  const send = (o) => proc.stdin.write(JSON.stringify(o) + "\n");
+  send(INIT);
+  send({ jsonrpc: "2.0", method: "notifications/initialized" });
+  send({ jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "run_command", arguments: { command: "echo stdio-ok" } } });
+
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline && out.split("\n").filter(Boolean).length < 2) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  proc.kill("SIGKILL");
+  const lines = out.split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(lines.length, 2, "the notification must not produce a line");
+  assert.equal(lines[0].result.serverInfo.name, "arena-kali");
+  assert.match(lines[1].result.content[0].text, /stdio-ok/);
+});

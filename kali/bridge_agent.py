@@ -40,9 +40,19 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
+
+# The MCP server shares this process and this token: one port, one thing to
+# start, one thing to stop.
+try:
+    import kali_mcp
+except ImportError:  # pragma: no cover - direct python3 run from another cwd
+    import os as _os, sys as _sys
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    import kali_mcp
 MAX_CMD_CHARS = 8000
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024          # per stream, then truncated
 MAX_CONCURRENT = 3
@@ -77,6 +87,7 @@ def log(msg):
 class Config:
     token = ""
     seatbelt = False
+    session_id = "arena-kali-" + uuid.uuid4().hex[:16]
     allow_pair = True
     semaphore = threading.BoundedSemaphore(MAX_CONCURRENT)
     started = time.time()
@@ -210,7 +221,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = self.path.split("?")[0]
-        if route not in ("/exec", "/run"):
+        if route not in ("/exec", "/run", "/mcp"):
             self._send_json(404, {"error": "not found"})
             return
         if not self._authorised():
@@ -231,21 +242,62 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, UnicodeDecodeError):
             self._send_json(400, {"error": "body must be JSON"})
             return
-        if not isinstance(payload, dict):
+        # JSON-RPC batches (an array of messages) are only legal on /mcp.
+        if not isinstance(payload, (dict, list)):
+            self._send_json(400, {"error": "body must be a JSON object"})
+            return
+        if isinstance(payload, list) and route != "/mcp":
             self._send_json(400, {"error": "body must be a JSON object"})
             return
 
         # The journal is the only audit trail this thing has. Keeping quiet
         # about commands made "is it even reaching the VM?" unanswerable.
-        cmd_for_log = payload.get("cmd")
+        cmd_for_log = payload.get("cmd") if isinstance(payload, dict) else None
         if isinstance(cmd_for_log, str):
             one_line = " ".join(cmd_for_log.split())
             log("%s %s" % (route, one_line[:160] + ("…" if len(one_line) > 160 else "")))
 
         if route == "/run":
             self._run(payload)
+        elif route == "/mcp":
+            self._mcp(payload)
         else:
             self._exec(payload)
+
+    # -- MCP over Streamable HTTP (JSON in, JSON out) --------------------
+    # A single POST may carry one message or a batch. Notifications get 202
+    # with an empty body, per the spec; everything else gets JSON-RPC back.
+    def _mcp(self, payload):
+        if isinstance(payload, list):
+            out = []
+            for msg in payload:
+                reply = kali_mcp.handle(msg, SEATBELT if Config.seatbelt else ())
+                if reply is not None:
+                    out.append(reply)
+            if not out:
+                self._send_mcp(None, 202)
+                return
+            self._send_mcp(out, 200)
+            return
+
+        reply = kali_mcp.handle(payload, SEATBELT if Config.seatbelt else ())
+        if reply is None:
+            self._send_mcp(None, 202)
+            return
+        log("mcp %s" % payload.get("method") if isinstance(payload, dict) else "mcp batch")
+        self._send_mcp(reply, 200)
+
+    def _send_mcp(self, obj, code):
+        body = b"" if obj is None else json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Mcp-Session-Id", Config.session_id)
+        self._cors()
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
 
     # -- one-shot: run, collect, return a single JSON object ------------
     # The chat loop needs a compact result it can paste back into a
@@ -528,9 +580,16 @@ def main():
     ap.add_argument("--token-file", default=os.path.expanduser("~/.arena-bridge/token"))
     ap.add_argument("--no-pair", action="store_true",
                     help="refuse /pair (then the token must be pasted by hand)")
+    ap.add_argument("--mcp-stdio", action="store_true",
+                    help="speak MCP over stdin/stdout instead of HTTP (for Claude Desktop, Cursor, …)")
     ap.add_argument("--deny-rm", action="store_true", dest="seatbelt",
                     help="refuse a few catastrophic command patterns (a seatbelt, not a lock)")
     args = ap.parse_args()
+
+    if args.mcp_stdio:
+        # stdio transport: stdout is the wire, so nothing else may print to it.
+        kali_mcp.serve_stdio(sys.stdin, sys.stdout, SEATBELT if args.seatbelt else ())
+        return
 
     Config.token, how = load_token(args.token_file, args.token)
     Config.seatbelt = args.seatbelt
@@ -543,6 +602,8 @@ def main():
     print("  arena-bridge agent %s" % VERSION)
     print("  listening   http://%s:%d" % (args.host, args.port))
     print("  token       %s  (from %s)" % (Config.token, how))
+    print("  mcp         http://%s:%d/mcp   (Streamable HTTP, same token)" %
+          ("127.0.0.1" if args.host in ("0.0.0.0", "") else args.host, args.port))
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         print("  !! BOUND TO A NON-LOOPBACK ADDRESS — anything that can reach this")
         print("     port can run shell commands as %s. Prefer an SSH tunnel." %

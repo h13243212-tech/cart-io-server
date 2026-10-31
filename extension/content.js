@@ -36,6 +36,7 @@
   let lastIdleText = "";   // so "saw a block, cannot run it" is said once
   let lastEmptyText = "";  // and "no block at all" is said once
   let busySince = 0;       // a worker that never answers must not freeze the loop
+  let lastBlockCode = "";  // the last rendered code block we have handled
   let lastInjected = "";
   let busy = false;
   let settleTimer = null;
@@ -127,6 +128,7 @@
     panel.classList.toggle("akb-armed", v);
     row(v ? "warn" : "meta", v ? "ARMED — the model can now run commands" : "disarmed");
     if (v) {
+      lastBlockCode = Site.lastCodeBlock(panel)?.code || "";   // never replay history
       steps = 0;
       lastSeenText = "";
       chrome.runtime.sendMessage({ type: "akb:reset" });
@@ -277,6 +279,18 @@
       row("warn", "worker stopped answering — loop resumed");
     }
     if (!armed || busy) return;
+
+    // 1. A code block on the page is the command. This does not care which
+    //    element is "the reply" — the thing that kept breaking.
+    const block = Site.lastCodeBlock(panel);
+    if (block && block.code && block.code !== lastBlockCode) {
+      lastBlockCode = block.code;
+      row("meta", `captured a ${block.lang || "untagged"} block (${block.code.length} chars)`);
+      tick(true, block.code, [{ lang: block.lang, code: block.code }]);
+      return;
+    }
+
+    // 2. Fall back to the reply text, for plain-text renderings.
     const { text, blocks } = Site.findLastReplyText(cfg.selectors.reply);
     if (!text) return;
     if (text === lastSeenText) return;

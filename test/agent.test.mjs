@@ -209,3 +209,33 @@ test("agent --no-pair closes the door", async (t) => {
   // the token the user was given still works; only the hand-out stopped
   assert.equal((await run(a.base, "echo still-fine")).body.out, "still-fine\n");
 });
+
+/* ------------------------------------------------------------------
+   The demo page: a chat UI the agent serves itself, so the whole loop can
+   be proven without arena.ai, an account, or a model. It has to be there
+   and it has to be the real file.
+------------------------------------------------------------------ */
+test("agent serves the local demo page", async (t) => {
+  const a = await startAgent();
+  t.after(a.cleanup);
+
+  await t.test("GET /demo returns the chat page", async () => {
+    const res = await fetch(a.base + "/demo");
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type"), /text\/html/);
+    const html = await res.text();
+    assert.match(html, /contenteditable/);     // a composer to type into
+    assert.match(html, /language-/);           // it really renders code blocks
+  });
+
+  await t.test("the demo needs no token, and leaks nothing", async () => {
+    const res = await fetch(a.base + "/demo");
+    const html = await res.text();
+    assert.equal(res.status, 200);
+    assert.doesNotMatch(html, /Bearer|token/i);
+  });
+
+  await t.test("health is still protected on the same server", async () => {
+    assert.equal((await fetch(a.base + "/health")).status, 401);
+  });
+});

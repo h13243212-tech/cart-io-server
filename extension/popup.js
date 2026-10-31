@@ -10,6 +10,8 @@ const DEFAULTS = { base: "http://127.0.0.1:8787", token: "", maxSteps: 24,
                    selectors: { composer: "", sendButton: "", reply: "" } };
 const $ = id => document.getElementById(id);
 const dot = $("dot"), statusEl = $("status");
+// the first thing to check when something behaves like an old build
+$("ver").textContent = "v" + chrome.runtime.getManifest().version;
 
 function setStatus(state, text, good = false) {
   dot.className = "dot" + (state ? " " + state : "");

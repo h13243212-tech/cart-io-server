@@ -107,6 +107,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Runs a command typed straight into the panel. No chat, no scraping:
+  // the shortest possible test of "does the VM answer".
+  if (msg.type === "akb:exec") {
+    runCommand(String(msg.cmd || "")).then((r) => sendResponse({
+      ok: !r.error, result: r, message: makeResultMessage(r),
+    }));
+    return true;
+  }
+
   if (msg.type === "akb:pair") {
     pair().then(sendResponse);
     return true;

@@ -104,6 +104,35 @@ test("extension wiring", async (t) => {
     assert.ok(html.indexOf('id="pair"') < html.indexOf('id="token"'));
   });
 
+  await t.test("there is a way to test the VM without the chat", () => {
+    const js = read("extension/content.js");
+    assert.match(js, /akb:exec/);
+    assert.match(js, /type a command to test the VM/);
+    assert.match(read("extension/background.js"), /msg\.type === "akb:exec"/);
+    assert.match(read("extension/content.css"), /akb-runbox/);
+  });
+
+  await t.test("a report can be downloaded instead of describing the page", () => {
+    const js = read("extension/content.js");
+    assert.match(js, /data-act="report"/);
+    assert.match(js, /arena-kali-report\.txt/);
+    assert.match(js, /outerHTML/);
+    assert.match(js, /presOnPage/);
+  });
+
+  await t.test("the loop cannot die quietly", () => {
+    const js = read("extension/content.js");
+    assert.match(js, /no code block found/);          // reply seen, nothing in it
+    assert.match(js, /setInterval\(\(\) => \{ if \(armed && !busy\) settle/);  // polling
+    assert.match(js, /busySince/);                    // watchdog
+  });
+
+  await t.test("block reading falls back past <pre>", () => {
+    const site = read("extension/site.js");
+    assert.match(site, /querySelectorAll\("code"\)/);
+    assert.match(site, /class\*="code"/);
+  });
+
   await t.test("the build identifies itself, so 'is this the new one?' is answerable", () => {
     const manifest = JSON.parse(read("extension/manifest.json"));
     assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
